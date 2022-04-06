@@ -11,7 +11,7 @@ from scipy.interpolate import lagrange
 from .params import Param, ParamsPriors, Prior
 from .state import State
 from .checker import checker
-from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_next_h, compute_next_temp
+from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_H, compute_T
 
 
 class Column:
@@ -46,51 +46,58 @@ class Column:
 
     @checker
     def compute_solve_transi(self, param: tuple, nb_cells: int, verbose=True):
-        nb_cells += 2
         if not isinstance(param, Param):
             param = Param(*param)
         self._param = param
 
         if verbose:
             print("--- Compute Solve Transi ---", self._param, sep="\n")
-        dz = self._real_z[-1] / (nb_cells - 1)
-        self._z_solve = np.concatenate(
-            [
-                np.array([0]),
-                np.linspace(dz / 2, self._real_z[-1] - dz / 2, nb_cells - 2),
-                np.array([self._real_z[-1]]),
-            ],
-            axis=0,
-        )
-        dz = abs(self._z_solve[1] - self._z_solve[0])
+
+        dz = self._real_z[-1] / nb_cells
+
+        self._z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
+
         K = 10 ** -param.moinslog10K
         heigth = abs(self._real_z[-1] - self._real_z[0])
         Ss = param.n / heigth
 
-        dts = np.array(
-            [
-                (self._times[k] - self._times[k - 1]).total_seconds()
-                for k in range(1, len(self._times))
-            ]
-        )
+        all_dt = np.array([(self._times[j+1] - self._times[j]).total_seconds()
+                           for j in range(len(self._times) - 1)])
 
-        H_res_init = np.linspace(self._dH[0], 0, nb_cells)
-        H_res = compute_next_h(K, Ss, dts, dz, H_res_init, self._dH)
+        isdtconstant = np.all(all_dt == all_dt[0])
+
+        H_init = np.linspace(self._dH[0], 0, nb_cells)
+        H_aq = np.zeros(len(self._times))
+        H_riv = self._dH
+
+        H_res = compute_H(K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq)
 
         # temps[0] = np.linspace(self._T_riv[0], self._T_aq[0], nb_cells)
         lagr = lagrange(
             self._real_z, [self._T_riv[0], *self._T_measures[0], self._T_aq[0]]
         )
-        temps_init = lagr(self._z_solve)
 
-        temps = compute_next_temp(
-            *param[:], dts, dz, temps_init, H_res, self._T_riv, self._T_aq
+        T_init = lagr(self._z_solve)
+        T_riv = self._T_riv
+        T_aq = self._T_aq
+
+        T_res = compute_T(
+            param.moinslog10K, param.n, param.lambda_s, param.rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq
         )
 
-        self._z_solve = self._z_solve[1:-1]
-        self._temps = temps[:, 1:-1]
-        self._H_res = H_res[:, 1:-1]
-        self._flows = -K * (H_res[:, 1] - H_res[:, 0]) / dz
+        self._temps = T_res
+        self._H_res = H_res
+
+        nablaH = np.zeros((nb_cells, len(self._times)), np.float32)
+
+        nablaH[0, :] = 2*(H_res[0, :] - H_riv)/dz
+
+        for i in range(1, nb_cells - 1):
+            nablaH[i, :] = (H_res[i+1, :] - H_res[i-1, :])/(2*dz)
+
+        nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 1, :])/dz
+
+        self._flows = -K * nablaH
 
         if verbose:
             print("Done.")
@@ -161,12 +168,14 @@ class Column:
             quantile = [quantile]
 
         priors = ParamsPriors(
-            [Prior((a, b), c) for (a, b), c in (priors[lbl] for lbl in PARAM_LIST)]
+            [Prior((a, b), c) for (a, b), c in (priors[lbl]
+                                                for lbl in PARAM_LIST)]
         )
 
         ind_ref = [
             np.argmin(
-                np.abs(z - np.linspace(self._real_z[0], self._real_z[-1], nb_cells))
+                np.abs(
+                    z - np.linspace(self._real_z[0], self._real_z[-1], nb_cells))
             )
             for z in self._real_z[1:-1]
         ]

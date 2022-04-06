@@ -4,6 +4,11 @@ from numpy import ones, zeros, float32
 
 @njit
 def solver(a, b, c, d):
+    """
+    Solves the system AX = B where :
+        - A is tridiagonal, with a, b and c as diagonals (from bottom to top)
+        - B is a vector represented by d
+    """
     nf = len(d)
 
     ac = a.astype(float32)
@@ -27,6 +32,11 @@ def solver(a, b, c, d):
 
 @njit
 def tri_product(a, b, c, d):
+    """
+    Computes AB where :
+        - A is tridiagonal, with a, b and c as diagonals (from bottom to top)
+        - B is a vector represented by d
+    """
     n = len(d)
     res = zeros(n, dtype=float32)
 
@@ -39,7 +49,8 @@ def tri_product(a, b, c, d):
     res[n - 1] = dc[n - 1] * bc[n - 1] + dc[n - 2] * ac[n - 2]
 
     for ix in range(1, n - 1):
-        res[ix] = ac[ix - 1] * dc[ix - 1] + bc[ix] * dc[ix] + cc[ix] * dc[ix + 1]
+        res[ix] = ac[ix - 1] * dc[ix - 1] + \
+            bc[ix] * dc[ix] + cc[ix] * dc[ix + 1]
 
     return res
 

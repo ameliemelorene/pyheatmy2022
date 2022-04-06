@@ -1,4 +1,4 @@
-from numpy import float32, full, gradient, zeros
+from numpy import float32, full, zeros
 from numba import njit
 
 from .solver import solver, tri_product
@@ -16,13 +16,27 @@ PARAM_LIST = (
 
 
 @njit()
-def compute_next_temp(
-    moinslog10K, n, lambda_s, rhos_cs, dts, dz, temps_init, H_res, t0s, tns, alpha=0.7
+def compute_T(
+    moinslog10K, n, lambda_s, rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq, alpha=0.3
 ):
-    N = temps_init.size
-    temps = zeros((dts.size + 1, N), dtype=float32)
-    temps[0] = temps_init.astype(float32)
-
+    """
+    Computes T(z, t) by solving the heat equation : dT/dt = ke Delta T + ae nabla H nabla T
+    In matrix form, we have : A*T_{t+1} = B*T_t + c.
+    Arguments :
+        - moinslog10K = - log10(K), where K = permeability
+        - n = porosity
+        - lambda_s = thermal conductivity
+        - rho_cs = density
+        - times = list of times at which we want to compute T.
+        - dz = spatial discretization step
+        - H_res = array of H(z, t)
+        - H_riv = list of H in the river for each time
+        - H_aq = list of H in the aquifer for each time
+        - T_init = list of T(z, t=0)
+        - T_riv = list of T in the river for each time
+        - T_aq = list of T in the aquifer for each time
+        - alpha = parameter of the semi-implicit scheme
+    """
     rho_mc_m = n * RHO_W * C_W + (1 - n) * rhos_cs
     K = 10.0 ** -moinslog10K
     lambda_m = (n * (LAMBDA_W) ** 0.5 + (1.0 - n) * (lambda_s) ** 0.5) ** 2
@@ -30,92 +44,178 @@ def compute_next_temp(
     ke = lambda_m / rho_mc_m
     ae = RHO_W * C_W * K / rho_mc_m
 
-    for ix in range(1, dts.size + 1):
-        dt = dts[ix - 1]
+    n_cell = len(T_init)
+    n_times = len(all_dt) + 1
 
-        dH_prev = zeros(N, dtype=float32)
-        dH_prev[1:-1] = (H_res[ix - 1, 2:] - H_res[ix - 1, :-2]) / (2.0 * dz)
-        dH_prev[0] = (H_res[ix - 1, 2] - H_res[ix - 1, 1]) / dz
-        dH_prev[-1] = (H_res[ix - 1, -2] - H_res[ix - 1, -3]) / dz
+    # First we need to compute the gradient of H(z, t)
 
-        a = (-ke / dz ** 2 + dH_prev[1:] * (ae / (2 * dz))) * (1 - alpha)
-        a[0] = -(1 - alpha) * (2 * ke / dz ** 2 - ae * dH_prev[0] / (2 * dz))
-        a[-2] = -(1 - alpha) * (ke / dz ** 2 + ae * dH_prev[-1] / (2 * dz))
-        b = full(N, (1 - alpha) * 2 * ke / dz ** 2 - 1 / dt, dtype=float32)
-        b[1] = -(1 - alpha) * (-2 * ke / dz ** 2) * (3 / 2) - 1 / dt
-        b[-2] = -(1 - alpha) * (-2 * ke / dz ** 2) * (3 / 2) - 1 / dt
-        c = (-ke / dz ** 2 - dH_prev[:-1] * ae / (2 * dz)) * (1 - alpha)
-        c[1] = -(1 - alpha) * (ke / dz ** 2 + ae * dH_prev[0] / (2 * dz))
-        c[-1] = -(1 - alpha) * (2 * ke / dz ** 2 - ae * dH_prev[-1] / (2 * dz))
+    nablaH = zeros((n_cell, n_times), float32)
 
-        lim = tri_product(a, b, c, temps[ix - 1])
-        lim[0], lim[-1] = t0s[ix], tns[ix]
+    nablaH[0, :] = 2*(H_res[0, :] - H_riv)/dz
 
-        dH = zeros(N, dtype=float32)
-        dH[1:-1] = (H_res[ix, 2:] - H_res[ix, :-2]) / (2.0 * dz)
-        dH[0] = (H_res[ix, 2] - H_res[ix, 1]) / dz
-        dH[-1] = (H_res[ix, -2] - H_res[ix, -3]) / dz
+    for i in range(1, n_cell - 1):
+        nablaH[i, :] = (H_res[i+1, :] - H_res[i-1, :])/(2*dz)
 
-        a = (ke / dz ** 2 - dH[1:] * ae / (2 * dz)) * alpha
-        a[0] = alpha * (2 * ke / dz ** 2 - ae * dH[0] / (2 * dz))
-        a[-2] = alpha * (ke / dz ** 2 + ae * dH[-1] / (2 * dz))
-        a[-1] = 0.0
-        b = full(N, -alpha * 2 * ke / dz ** 2 - 1 / dt, dtype=float32)
-        b[0], b[-1] = 1.0, 1.0
-        b[1] = alpha * (-2 * ke / dz ** 2) * (3 / 2) - 1 / dt
-        b[-2] = alpha * (-2 * ke / dz ** 2) * (3 / 2) - 1 / dt
-        c = (ke / dz ** 2 + dH[:-1] * ae / (2 * dz)) * alpha
-        c[0] = 0.0
-        c[1] = alpha * (ke / dz ** 2 + ae * dH[0] / (2 * dz))
-        c[-1] = alpha * (2 * ke / dz ** 2 - ae * dH[-1] / (2 * dz))
+    nablaH[n_cell - 1, :] = 2*(H_aq - H_res[n_cell - 1, :])/dz
 
-        temps[ix] = solver(a, b, c, lim)
-    return temps
+    # Now we can compute T(z, t)
+
+    T_res = zeros((n_cell, n_times), float32)
+    T_res[:, 0] = T_init
+
+    for j, dt in enumerate(all_dt):
+        # Compute T at time times[j+1]
+
+        # Defining the 3 diagonals of B
+        lower_diagonal = (ke*alpha/dz ** 2) - (alpha*ae/(2*dz)) * nablaH[1:, j]
+        lower_diagonal[-1] = 4*ke*alpha/(3*dz**2)
+
+        diagonal = full(n_cell, 1/dt - 2*ke*alpha/dz**2, float32)
+        diagonal[0] = 1/dt - 4*ke*alpha/dz**2 + 2*alpha*ae*nablaH[0, j]/dz
+        diagonal[-1] = 1/dt - 4*ke*alpha/dz**2 - \
+            2*alpha*ae*nablaH[n_cell-1, j]/dz
+
+        upper_diagonal = (ke*alpha/dz ** 2) + (alpha*ae/(2*dz)) * nablaH[1:, j]
+        upper_diagonal[0] = 4*ke*alpha/(3*dz**2)
+
+        # Defining c
+        c = zeros(n_cell, float32)
+        c[0] = (8*ke*(1-alpha) / (3*dz**2) - 2*(1-alpha)*ae*nablaH[0, j]/dz) * \
+            T_riv[j+1] + (8*ke*alpha / (3*dz**2) - 2*alpha *
+                          ae*nablaH[0, j]/dz) * T_riv[j]
+        c[-1] = (8*ke*(1-alpha) / (3*dz**2) + 2*(1-alpha)*ae*nablaH[n_cell - 1, j]/dz) * \
+            T_aq[j+1] + (8*ke*alpha / (3*dz**2) + 2*alpha *
+                         ae*nablaH[n_cell - 1, j]/dz) * T_aq[j]
+
+        B_fois_T_plus_c = tri_product(
+            lower_diagonal, diagonal, upper_diagonal, T_res[:, j]) + c
+
+        # Defining the 3 diagonals of A
+        lower_diagonal = - (ke*(1-alpha)/dz ** 2) + \
+            ((1-alpha)*ae/(2*dz)) * nablaH[1:, j]
+        lower_diagonal[-1] = - 4*ke*(1-alpha)/(3*dz**2)
+
+        diagonal = full(n_cell, 1/dt + 2*ke*(1-alpha)/dz**2, float32)
+        diagonal[0] = 1/dt + 4*ke*(1-alpha)/dz**2 - \
+            2*(1-alpha)*ae*nablaH[0, j]/dz
+        diagonal[-1] = 1/dt + 4*ke*(1-alpha)/dz**2 + \
+            2*(1-alpha)*ae*nablaH[n_cell-1, j]/dz
+
+        upper_diagonal = - (ke*(1-alpha)/dz ** 2) - \
+            ((1-alpha)*ae/(2*dz)) * nablaH[1:, j]
+        upper_diagonal[0] = - 4*ke*(1-alpha)/(3*dz**2)
+
+        T_res[:, j+1] = solver(lower_diagonal, diagonal,
+                               upper_diagonal, B_fois_T_plus_c)
+
+    return T_res
 
 
 @njit
-def compute_next_h(K, Ss, dts, dz, H_init, dHs, alpha=0.7):
-    dHs = dHs.astype(float32)
-    dts = dts.astype(float32)
+def compute_H(K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, alpha=0.3):
+    """
+    Computes H(z, t) by solving the diffusion equation : Ss dH/dt = K Delta H
+    In matrix form, we have : A*H_{t+1} = B*H_t + c.
+    Arguments :
+        - K = permeability
+        - Ss = specific emmagasinement
+        - times = list of times at which we want to compute H.
+        - dz = spatial discretization step
+        - H_init = list of H(z, t=0)
+        - H_riv = list of H in the river for each time
+        - H_aq = list of H in the aquifer for each time
+        - alpha = parameter of the semi-implicit scheme
+    """
+    n_cell = len(H_init)
+    n_times = len(all_dt) + 1
 
-    N = H_init.size
-    H_res = zeros((dts.size + 1, N), dtype=float32)
-    H_res[0] = H_init.astype(float32)
+    H_res = zeros((n_cell, n_times), float32)
+    H_res[:, 0] = H_init
 
-    for ix in range(1, dts.size + 1):
-        dt = dts[ix - 1]
+    KsurSs = K/Ss
 
-        k = K * (1 - alpha) / dz ** 2
+    # Check if dt is constant :
+    if isdtconstant:  # dt is constant so A and B are constant
+        dt = all_dt[0]
 
-        a = full(N - 1, -k, dtype=float32)
-        a[0] = -(1 - alpha) * K * 8 / (3 * (dz) ** 2)
-        a[-2] = -(1 - alpha) * K * 4 / (3 * (dz) ** 2)
-        b = full(N, 2 * k - Ss / dt, dtype=float32)
-        b[1] = (1 - alpha) * K * 4 / (dz) ** 2 - Ss / dt
-        b[-2] = (1 - alpha) * K * 4 / (dz) ** 2 - Ss / dt
-        c = full(N - 1, -k, dtype=float32)
-        c[1] = -(1 - alpha) * K * 4 / (3 * (dz) ** 2)
-        c[-1] = -(1 - alpha) * K * 8 / (3 * (dz) ** 2)
+        # Defining the 3 diagonals of B
+        lower_diagonal_B = full(n_cell - 1, KsurSs*alpha/dz**2, float32)
+        lower_diagonal_B[-1] = 4*KsurSs*alpha/(3*dz**2)
 
-        lim = tri_product(a, b, c, H_res[ix - 1])
+        diagonal_B = full(n_cell, 1/dt - 2*KsurSs*alpha/dz**2, float32)
+        diagonal_B[0] = 1/dt - 4*KsurSs*alpha/dz**2
+        diagonal_B[-1] = 1/dt - 4*KsurSs*alpha/dz**2
 
-        lim[0] = dHs[ix]
-        lim[N - 1] = 0
+        upper_diagonal_B = full(n_cell - 1, KsurSs*alpha/dz**2, float32)
+        upper_diagonal_B[0] = 4*KsurSs*alpha/(3*dz**2)
 
-        k = K * alpha / dz ** 2
+        # Defining the 3 diagonals of A
+        lower_diagonal_A = full(
+            n_cell - 1, - KsurSs*(1-alpha)/dz**2, float32)
+        lower_diagonal_A[-1] = - 4*KsurSs*(1-alpha)/(3*dz**2)
 
-        a = full(N - 1, k, dtype=float32)
-        a[0] = 8 * alpha * K / (3 * ((dz) ** 2))
-        a[-2] = 4 * (alpha) * K / (3 * (dz) ** 2)
-        a[-1] = 0
-        b = full(N, -2 * k - Ss / dt, dtype=float32)
-        b[0], b[-1] = 1, 1
-        b[1] = -alpha * K * 4 / ((dz) ** 2) - Ss / dt
-        b[-2] = -alpha * K * 4 / ((dz) ** 2) - Ss / dt
-        c = full(N - 1, k, dtype=float32)
-        c[0] = 0
-        c[1] = 4 * alpha * K / (3 * ((dz) ** 2))
-        c[-1] = 8 * (alpha) * K / (3 * (dz) ** 2)
+        diagonal_A = full(n_cell, 1/dt + 2*KsurSs*(1-alpha)/dz**2, float32)
+        diagonal_A[0] = 1/dt + 4*KsurSs*(1-alpha)/dz**2
+        diagonal_A[-1] = 1/dt + 4*KsurSs*(1-alpha)/dz**2
 
-        H_res[ix] = solver(a, b, c, lim)
+        upper_diagonal_A = full(
+            n_cell - 1, - KsurSs*(1-alpha)/dz**2, float32)
+        upper_diagonal_A[0] = - 4*KsurSs*(1-alpha)/(3*dz**2)
+
+        for j in range(n_times - 1):
+            # Compute H at time times[j+1]
+
+            # Defining c
+            c = zeros(n_cell, float32)
+            c[0] = (8*KsurSs / (2*dz**2)) * \
+                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
+            c[-1] = (8*KsurSs / (2*dz**2)) * \
+                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+
+            B_fois_H_plus_c = tri_product(
+                lower_diagonal_B, diagonal_B, upper_diagonal_B, H_res[:, j]) + c
+
+            H_res[:, j+1] = solver(lower_diagonal_A, diagonal_A,
+                                   upper_diagonal_A, B_fois_H_plus_c)
+    else:  # dt is not constant so A and B and not constant
+        for j, dt in enumerate(all_dt):
+            # Compute H at time times[j+1]
+
+            # Defining the 3 diagonals of B
+            lower_diagonal = full(n_cell - 1, KsurSs*alpha/dz**2, float32)
+            lower_diagonal[-1] = 4*KsurSs*alpha/(3*dz**2)
+
+            diagonal = full(n_cell, 1/dt - 2*KsurSs*alpha/dz**2, float32)
+            diagonal[0] = 1/dt - 4*KsurSs*alpha/dz**2
+            diagonal[-1] = 1/dt - 4*KsurSs*alpha/dz**2
+
+            upper_diagonal = full(n_cell - 1, KsurSs*alpha/dz**2, float32)
+            upper_diagonal[0] = 4*KsurSs*alpha/(3*dz**2)
+
+            # Defining c
+            c = zeros(n_cell, float32)
+            c[0] = (8*KsurSs / (2*dz**2)) * \
+                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
+            c[-1] = (8*KsurSs / (2*dz**2)) * \
+                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+
+            B_fois_H_plus_c = tri_product(
+                lower_diagonal, diagonal, upper_diagonal, H_res[:, j]) + c
+
+            # Defining the 3 diagonals of A
+            lower_diagonal = full(
+                n_cell - 1, - KsurSs*(1-alpha)/dz**2, float32)
+            lower_diagonal[-1] = - 4*KsurSs*(1-alpha)/(3*dz**2)
+
+            diagonal = full(n_cell, 1/dt + 2*KsurSs*(1-alpha)/dz**2, float32)
+            diagonal[0] = 1/dt + 4*KsurSs*(1-alpha)/dz**2
+            diagonal[-1] = 1/dt + 4*KsurSs*(1-alpha)/dz**2
+
+            upper_diagonal = full(
+                n_cell - 1, - KsurSs*(1-alpha)/dz**2, float32)
+            upper_diagonal[0] = - 4*KsurSs*(1-alpha)/(3*dz**2)
+
+            H_res[:, j+1] = solver(lower_diagonal, diagonal,
+                                   upper_diagonal, B_fois_H_plus_c)
+
     return H_res
