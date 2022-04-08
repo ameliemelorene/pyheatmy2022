@@ -19,26 +19,26 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         self,
         river_bed: float,#profondeur de la colonne en mètres
         depth_sensors: Sequence[float],#profondeur des capteurs de températures en mètres
-        offset: float,#?
+        offset: float,#correspond au décalage du capteur de température par rapport au lit de la rivière
         dH_measures: list,#liste contenant un tuple avec la date, la charge et la température au sommet de la colonne
         T_measures: list,#liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
-        sigma_meas_P: float,
-        sigma_meas_T: float,
+        sigma_meas_P: float,#écart type de l'incertitude sur les valeurs de pression capteur
+        sigma_meas_T: float,#écart type de l'incertitude sur les valeurs de température capteur
     ):
         self.depth_sensors = depth_sensors
         self.offset = offset
 
         # ! Pour l'instant on suppose que les temps matchent
-        self._times = [t for t, _ in dH_measures]
-        self._dH = np.array([d for _, (d, _) in dH_measures])
-        self._T_riv = np.array([t for _, (_, t) in dH_measures])
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])
-        self._T_measures = np.array([t[:-1] for _, t in T_measures])
+        self._times = [t for t, _ in dH_measures]#récupère la liste de temps
+        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère la liste de charge au sommet de la colonnne (au cours du temps)
+        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère la liste de température de la rivière (au cours du temps)
+        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère la liste de température de l'aquifère (au cours du temps)
+        self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère la liste de températures des capteurs (au cours du temps)
 
-        self._real_z = np.array([0] + depth_sensors) + offset
-        self._real_z[0] -= offset
-        self._states = None
-        self._z_solve = None
+        self._real_z = np.array([0] + depth_sensors) + offset #décale d'un offset les positions des capteurs (y compris rivière et aquifère)
+        self._real_z[0] -= offset #enlève l'offset sur la position de la rivière (pas de décalage dessus car c'est le capteur de température qui peut être déplacé) 
+        self._states = None #
+        self._z_solve = None #
 
     @classmethod
     def from_dict(cls, col_dict):
