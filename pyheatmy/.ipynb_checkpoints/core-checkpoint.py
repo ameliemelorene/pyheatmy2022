@@ -14,14 +14,14 @@ from .checker import checker
 from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_H, compute_T
 
 
-class Column:#colonne de sédiments verticale entre le lit de la rivière et l'aquifère
+class Column:
     def __init__(
         self,
-        river_bed: float,#profondeur de la colonne en mètres
-        depth_sensors: Sequence[float],#profondeur des capteurs de températures en mètres
-        offset: float,#?
-        dH_measures: list,#liste contenant un tuple avec la date, la charge et la température au sommet de la colonne
-        T_measures: list,#liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
+        river_bed: float,
+        depth_sensors: Sequence[float],
+        offset: float,
+        dH_measures: list,
+        T_measures: list,
         sigma_meas_P: float,
         sigma_meas_T: float,
     ):
