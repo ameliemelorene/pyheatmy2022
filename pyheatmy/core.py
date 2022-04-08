@@ -35,8 +35,8 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère la liste de température de l'aquifère (au cours du temps)
         self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère la liste de températures des capteurs (au cours du temps)
 
-        self._real_z = np.array([0] + depth_sensors) + offset #décale d'un offset les positions des capteurs (y compris rivière et aquifère)
-        self._real_z[0] -= offset #enlève l'offset sur la position de la rivière (pas de décalage dessus car c'est le capteur de température qui peut être déplacé) 
+        self._real_z = np.array([0] + depth_sensors) + offset #décale d'un offset les positions des capteurs de température (aussi riviere)
+        self._real_z[0] -= offset #enlève l'offset sur la mesure de température rivière car cette mesure est prise dans le capteur pression
         self._states = None #
         self._z_solve = None #
 
