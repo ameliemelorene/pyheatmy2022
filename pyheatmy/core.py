@@ -247,8 +247,8 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
             self.compute_solve_transi(params, nb_cells, verbose=False)
-            energy = compute_energy(self.temps_solve[ind_ref, :], , sigma_obs = params.sigma_temp),)
-            ratio_accept = compute_acceptance(energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors))
+            energy = compute_energy(self.temps_solve[ind_ref, :], sigma_obs = params.sigma_temp)
+            ratio_accept = compute_acceptance(energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
             if random() < ratio_accept:
                 self._states.append(
                     State(
