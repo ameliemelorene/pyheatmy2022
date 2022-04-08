@@ -7,6 +7,7 @@ LAMBDA_W = 0.6071
 RHO_W = 1000
 C_W = 4185
 
+
 from .params import PARAM_LIST 
 
 @njit()
@@ -45,12 +46,12 @@ def compute_T(
 
     nablaH = zeros((n_cell, n_times), float32)
 
-    nablaH[0, :] = 2*(H_res[0, :] - H_riv)/dz
+    nablaH[0, :] = 2*(H_res[1, :] - H_riv)/(3*dz)
 
     for i in range(1, n_cell - 1):
         nablaH[i, :] = (H_res[i+1, :] - H_res[i-1, :])/(2*dz)
 
-    nablaH[n_cell - 1, :] = 2*(H_aq - H_res[n_cell - 1, :])/dz
+    nablaH[n_cell - 1, :] = 2*(H_aq - H_res[n_cell - 2, :])/(3*dz)
 
     # Now we can compute T(z, t)
 
@@ -62,24 +63,26 @@ def compute_T(
 
         # Defining the 3 diagonals of B
         lower_diagonal = (ke*alpha/dz ** 2) - (alpha*ae/(2*dz)) * nablaH[1:, j]
-        lower_diagonal[-1] = 4*ke*alpha/(3*dz**2)
+        lower_diagonal[-1] = 4*ke*alpha / \
+            (3*dz**2) - (2*alpha*ae/(3*dz)) * nablaH[n_cell - 1, j]
 
         diagonal = full(n_cell, 1/dt - 2*ke*alpha/dz**2, float32)
-        diagonal[0] = 1/dt - 4*ke*alpha/dz**2 + 2*alpha*ae*nablaH[0, j]/dz
-        diagonal[-1] = 1/dt - 4*ke*alpha/dz**2 - \
-            2*alpha*ae*nablaH[n_cell-1, j]/dz
+        diagonal[0] = 1/dt - 4*ke*alpha/dz**2
+        diagonal[-1] = 1/dt - 4*ke*alpha/dz**2
 
-        upper_diagonal = (ke*alpha/dz ** 2) + (alpha*ae/(2*dz)) * nablaH[1:, j]
-        upper_diagonal[0] = 4*ke*alpha/(3*dz**2)
+        upper_diagonal = (ke*alpha/dz ** 2) + \
+            (alpha*ae/(2*dz)) * nablaH[:-1, j]
+        upper_diagonal[0] = 4*ke*alpha / \
+            (3*dz**2) + (2*alpha*ae/(3*dz)) * nablaH[0, j]
 
         # Defining c
         c = zeros(n_cell, float32)
-        c[0] = (8*ke*(1-alpha) / (3*dz**2) - 2*(1-alpha)*ae*nablaH[0, j]/dz) * \
+        c[0] = (8*ke*(1-alpha) / (3*dz**2) - 2*(1-alpha)*ae*nablaH[0, j]/(3*dz)) * \
             T_riv[j+1] + (8*ke*alpha / (3*dz**2) - 2*alpha *
-                          ae*nablaH[0, j]/dz) * T_riv[j]
-        c[-1] = (8*ke*(1-alpha) / (3*dz**2) + 2*(1-alpha)*ae*nablaH[n_cell - 1, j]/dz) * \
+                          ae*nablaH[0, j]/(3*dz)) * T_riv[j]
+        c[-1] = (8*ke*(1-alpha) / (3*dz**2) + 2*(1-alpha)*ae*nablaH[n_cell - 1, j]/(3*dz)) * \
             T_aq[j+1] + (8*ke*alpha / (3*dz**2) + 2*alpha *
-                         ae*nablaH[n_cell - 1, j]/dz) * T_aq[j]
+                         ae*nablaH[n_cell - 1, j]/(3*dz)) * T_aq[j]
 
         B_fois_T_plus_c = tri_product(
             lower_diagonal, diagonal, upper_diagonal, T_res[:, j]) + c
@@ -87,17 +90,17 @@ def compute_T(
         # Defining the 3 diagonals of A
         lower_diagonal = - (ke*(1-alpha)/dz ** 2) + \
             ((1-alpha)*ae/(2*dz)) * nablaH[1:, j]
-        lower_diagonal[-1] = - 4*ke*(1-alpha)/(3*dz**2)
+        lower_diagonal[-1] = - 4*ke*(1-alpha)/(3*dz**2) + \
+            (2*(1-alpha)*ae/(3*dz)) * nablaH[n_cell - 1, j]
 
         diagonal = full(n_cell, 1/dt + 2*ke*(1-alpha)/dz**2, float32)
-        diagonal[0] = 1/dt + 4*ke*(1-alpha)/dz**2 - \
-            2*(1-alpha)*ae*nablaH[0, j]/dz
-        diagonal[-1] = 1/dt + 4*ke*(1-alpha)/dz**2 + \
-            2*(1-alpha)*ae*nablaH[n_cell-1, j]/dz
+        diagonal[0] = 1/dt + 4*ke*(1-alpha)/dz**2
+        diagonal[-1] = 1/dt + 4*ke*(1-alpha)/dz**2
 
         upper_diagonal = - (ke*(1-alpha)/dz ** 2) - \
-            ((1-alpha)*ae/(2*dz)) * nablaH[1:, j]
-        upper_diagonal[0] = - 4*ke*(1-alpha)/(3*dz**2)
+            ((1-alpha)*ae/(2*dz)) * nablaH[:-1, j]
+        upper_diagonal[0] = - 4*ke*(1-alpha)/(3*dz**2) - \
+            (2*(1-alpha)*ae/(3*dz)) * nablaH[0, j]
 
         T_res[:, j+1] = solver(lower_diagonal, diagonal,
                                upper_diagonal, B_fois_T_plus_c)

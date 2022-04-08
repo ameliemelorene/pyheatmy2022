@@ -14,31 +14,39 @@ from .checker import checker
 from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T
 
 
-class Column:
+class Column:#colonne de sédiments verticale entre le lit de la rivière et l'aquifère
     def __init__(
         self,
-        river_bed: float,
-        depth_sensors: Sequence[float],
-        offset: float,
-        dH_measures: list,
-        T_measures: list,
-        sigma_meas_P: float,
-        sigma_meas_T: float,
+        river_bed: float,#profondeur de la colonne en mètres
+        depth_sensors: Sequence[float],#profondeur des capteurs de températures en mètres
+        offset: float,#correspond au décalage du capteur de température par rapport au lit de la rivière
+        dH_measures: list,#liste contenant un tuple avec la date, la charge et la température au sommet de la colonne
+        T_measures: list,#liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
+        sigma_meas_P: float,#écart type de l'incertitude sur les valeurs de pression capteur
+        sigma_meas_T: float,#écart type de l'incertitude sur les valeurs de température capteur
     ):
+        # ! Pour l'instant on suppose que les temps matchent
+        self._times = [t for t, _ in dH_measures]
+        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère la liste des charges de la riviière (au cours du temps)
+        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère la liste de température de la rivière (au cours du temps)
+        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère la liste de température de l'aquifère (au cours du temps)
+        self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère la liste de températures des capteurs (au cours du temps)
+
+        self._real_z = np.array([0] + depth_sensors) + offset #décale d'un offset les positions des capteurs de température (aussi riviere)
+        self._real_z[0] -= offset #enlève l'offset sur la mesure de température rivière car cette mesure est prise dans le capteur pression
+      
         self.depth_sensors = depth_sensors
         self.offset = offset
 
-        #! Pour l'instant on suppose que les temps matchent
-        self._times = [t for t, _ in dH_measures]
-        self._dH = np.array([d for _, (d, _) in dH_measures])
-        self._T_riv = np.array([t for _, (_, t) in dH_measures])
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])
-        self._T_measures = np.array([t[:-1] for _, t in T_measures])
-
-        self._real_z = np.array([0] + depth_sensors) + offset
-        self._real_z[0] -= offset
-        self._states = None
+        self._param = None
         self._z_solve = None
+        self._temps = None
+        self._H_res = None
+        self._flows = None
+
+        self._states = None
+        self._quantiles_temps = None
+        self._quantiles_flows = None
 
     @classmethod
     def from_dict(cls, col_dict):
@@ -90,12 +98,12 @@ class Column:
 
         nablaH = np.zeros((nb_cells, len(self._times)), np.float32)
 
-        nablaH[0, :] = 2*(H_res[0, :] - H_riv)/dz
+        nablaH[0, :] = 2*(H_res[1, :] - H_riv)/(3*dz)
 
         for i in range(1, nb_cells - 1):
             nablaH[i, :] = (H_res[i+1, :] - H_res[i-1, :])/(2*dz)
 
-        nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 1, :])/dz
+        nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 2, :])/(3*dz)
 
         self._flows = -K * nablaH
 
@@ -118,19 +126,17 @@ class Column:
         if z is None:
             return self._temps
         z_ind = np.argmin(np.abs(self.depths_solve - z))
-        return self._temps[:, z_ind]
+        return self._temps[z_ind, :]
 
     temps_solve = property(get_temps_solve)
 
     @compute_solve_transi.needed
     def get_advec_flows_solve(self):
-        dz = abs(self._z_solve[1] - self._z_solve[0])
         return (
-            -RHO_W
+            RHO_W
             * C_W
-            * 10 ** -self._param.moinslog10K
-            * np.gradient(self._H_res, dz, axis=-1)
-            * (self.temps_solve - (273.15 if self.temps_solve[0, 0] > 200 else 0))
+            * self._flows
+            * self.temps_solve
         )
 
     advec_flows_solve = property(get_advec_flows_solve)
@@ -141,8 +147,21 @@ class Column:
             self._param.n * (LAMBDA_W) ** 0.5
             + (1.0 - self._param.n) * (self._param.lambda_s) ** 0.5
         ) ** 2
-        dz = abs(self._z_solve[1] - self._z_solve[0])
-        return lambda_m * np.gradient(self.temps_solve, dz, axis=-1)
+
+        dz = self._z_solve[1] - self._z_solve[0]
+        nb_cells = len(self._z_solve)
+
+        nablaT = np.zeros((nb_cells, len(self._times)), np.float32)
+
+        nablaT[0, :] = 2*(self._temps[1, :] - self._T_riv)/(3*dz)
+
+        for i in range(1, nb_cells - 1):
+            nablaT[i, :] = (self._temps[i+1, :] - self._temps[i-1, :])/(2*dz)
+
+        nablaT[nb_cells - 1, :] = 2 * \
+            (self._T_aq - self._temps[nb_cells - 2, :])/(3*dz)
+
+        return lambda_m * nablaT
 
     conduc_flows_solve = property(get_conduc_flows_solve)
 
@@ -151,7 +170,7 @@ class Column:
         if z is None:
             return self._flows
         z_ind = np.argmin(np.abs(self.depths_solve - z))
-        return self._flows[:, z_ind]
+        return self._flows[z_ind, :]
 
     flows_solve = property(get_flows_solve)
 
@@ -180,13 +199,13 @@ class Column:
             for z in self._real_z[1:-1]
         ]
 
-        temp_ref = self._T_measures[:, :]
+        temp_ref = self._T_measures[:, :].T
 
         def compute_energy(temp: np.array, sigma_obs: float = 1):
             # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
-
+          
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, priors):
             #min useless
             return min(1, (prev_sigma*priors.prior_list[-1].density(actual_sigma)/(actual_sigma*priors[-1].density(prev_sigma)))*np.exp((prev_energy - actual_energy)  / len(self._times) ** 1))
@@ -205,8 +224,8 @@ class Column:
         self._states = list()
 
         nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size
-        _temps = np.zeros((nb_iter + 1, len(self._times), nb_z), np.float32)
-        _flows = np.zeros((nb_iter + 1, len(self._times)), np.float32)
+        _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
+        _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
 
         for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
             init_param = priors.sample_params()
@@ -215,7 +234,7 @@ class Column:
             self._states.append(
                 State(
                     params=init_param,
-                    energy=compute_energy(self.temps_solve[:, ind_ref], sigma_obs = init_param.sigma_temp),
+                    energy=compute_energy(self.temps_solve[ind_ref, :], sigma_obs = init_param.sigma_temp),
                     ratio_accept=1,
                 )
             )
@@ -228,8 +247,8 @@ class Column:
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
             self.compute_solve_transi(params, nb_cells, verbose=False)
-            energy = compute_energy(self.temps_solve[:, ind_ref], sigma_obs = params.sigma_temp)
-            ratio_accept = compute_acceptance(energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
+            energy = compute_energy(self.temps_solve[ind_ref, :], , sigma_obs = params.sigma_temp),)
+            ratio_accept = compute_acceptance(energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors))
             if random() < ratio_accept:
                 self._states.append(
                     State(
@@ -263,7 +282,7 @@ class Column:
 
     @compute_mcmc.needed
     def get_depths_mcmc(self):
-        return self._times
+        return self._real_z  #plus cohérent que de renvoyer le time
 
     depths_mcmc = property(get_depths_mcmc)
 
@@ -311,7 +330,7 @@ class Column:
         return [s.params.rhos_cs for s in self._states]
 
     all_rhos_cs = property(get_all_rhos_cs)
-
+    
     @compute_mcmc.needed
     def get_all_sigma(self) :
         return [s.params.sigma_temp for s in self._states]
