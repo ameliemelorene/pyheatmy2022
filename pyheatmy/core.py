@@ -26,9 +26,9 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         sigma_meas_T: float,#écart type de l'incertitude sur les valeurs de température capteur
     ):
         # ! Pour l'instant on suppose que les temps matchent
-        self._times = [t for t, _ in dH_measures]
-        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère la liste des charges de la riviière (au cours du temps)
-        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère la liste de température de la rivière (au cours du temps)
+        self._times = [t for t, _ in dH_measures]#récupère la liste des temps
+        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère la liste des charges au de la riviière (=sommet de la colonne) (au cours du temps)
+        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère la liste de température de la rivière (=sommet de la colonne) (au cours du temps)
         self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère la liste de température de l'aquifère (au cours du temps)
         self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère la liste de températures des capteurs (au cours du temps)
 
@@ -38,8 +38,8 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         self.depth_sensors = depth_sensors
         self.offset = offset
 
-        self._param = None
-        self._z_solve = None
+        self._param = None#les paramètres moinslog10K,n,lambda_s,rhos_cs
+        self._z_solve = None#le tableau contenant la profondeur du milieu des cellules
         self._temps = None
         self._H_res = None
         self._flows = None
@@ -53,32 +53,33 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         return cls(**col_dict)
 
     @checker
-    def compute_solve_transi(self, param: tuple, nb_cells: int, verbose=True):
-        if not isinstance(param, Param):
-            param = Param(*param)
+    def compute_solve_transi(self, param: tuple, nb_cells: int, verbose=True):#résout les calculs de température au cours du temps en régime transitoire
+        """s'applique à la colonne, paramètres contient moinslog10K,n,lambda_s,rhos_cs,nb_cells est le nombre de cellules pour la discrétisation en profondeur,verbose affiche les textes explicatifs"""
+        if not isinstance(param, Param):#si param n'est pas de type Param
+            param = Param(*param)#crée param de classe Param à partir des valeurs données dans param en entrée
         self._param = param
 
         if verbose:
             print("--- Compute Solve Transi ---", self._param, sep="\n")
 
-        dz = self._real_z[-1] / nb_cells
+        dz = self._real_z[-1] / nb_cells  #profondeur d'une cellule
 
         self._z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
 
         K = 10 ** -param.moinslog10K
         heigth = abs(self._real_z[-1] - self._real_z[0])
-        Ss = param.n / heigth
+        Ss = param.n / heigth # l'emmagasinement spécifique = porosité sur la hauteur
 
         all_dt = np.array([(self._times[j+1] - self._times[j]).total_seconds()
-                           for j in range(len(self._times) - 1)])
+                           for j in range(len(self._times) - 1)])#le tableau des pas de temps (dépend des données d'entrée)
 
         isdtconstant = np.all(all_dt == all_dt[0])
 
-        H_init = np.linspace(self._dH[0], 0, nb_cells)
-        H_aq = np.zeros(len(self._times))
-        H_riv = self._dH
+        H_init = np.linspace(self._dH[0], 0, nb_cells)#initialise (t=0) les charges des cellules en prenant 0 comme référence au niveau de l'aquifère
+        H_aq = np.zeros(len(self._times))#fixe toutes les charges de l'aquifère à 0 (à tout temps)
+        H_riv = self._dH#self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        H_res = compute_H(K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq)
+        H_res = compute_H(K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq)#calcule toutes les charges à tout temps et à toute profondeur
 
         # temps[0] = np.linspace(self._T_riv[0], self._T_aq[0], nb_cells)
         lagr = lagrange(
