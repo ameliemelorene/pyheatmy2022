@@ -7,13 +7,7 @@ LAMBDA_W = 0.6071
 RHO_W = 1000
 C_W = 4185
 
-PARAM_LIST = (
-    "moinslog10K",
-    "n",
-    "lambda_s",
-    "rhos_cs",
-)
-
+from .params import PARAM_LIST 
 
 @njit()
 def compute_T(
