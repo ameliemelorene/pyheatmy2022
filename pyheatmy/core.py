@@ -111,18 +111,20 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         if verbose:
             print("Done.")
 
-    @compute_solve_transi.needed
+    @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_depths_solve(self):
         return self._z_solve
 
     depths_solve = property(get_depths_solve)
+#récupération de l'attribut _z_solve 
 
     def get_times_solve(self):
         return self._times
 
     times_solve = property(get_times_solve)
+#récupération de l'attribut _times
 
-    @compute_solve_transi.needed
+    @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_temps_solve(self, z=None):
         if z is None:
             return self._temps
@@ -130,8 +132,9 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         return self._temps[z_ind, :]
 
     temps_solve = property(get_temps_solve)
+#récupération des températures au cours du temps à toutes les profondeurs (par défaut) ou bien à une profondeur donnée
 
-    @compute_solve_transi.needed
+    @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_advec_flows_solve(self):
         return (
             RHO_W
@@ -141,17 +144,18 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         )
 
     advec_flows_solve = property(get_advec_flows_solve)
+#récupération des flux advectifs = masse volumnique*capacité calorifique*débit spécifique*température
 
-    @compute_solve_transi.needed
+    @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_conduc_flows_solve(self):
         lambda_m = (
             self._param.n * (LAMBDA_W) ** 0.5
             + (1.0 - self._param.n) * (self._param.lambda_s) ** 0.5
-        ) ** 2
+        ) ** 2 #conductivité thermique du milieu poreux équivalent
 
-        dz = self._z_solve[1] - self._z_solve[0]
+        dz = self._z_solve[1] - self._z_solve[0]#pas en profondeur
         nb_cells = len(self._z_solve)
-
+        #création du gradient de température
         nablaT = np.zeros((nb_cells, len(self._times)), np.float32)
 
         nablaT[0, :] = 2*(self._temps[1, :] - self._T_riv)/(3*dz)
@@ -165,8 +169,9 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         return lambda_m * nablaT
 
     conduc_flows_solve = property(get_conduc_flows_solve)
+#récupération des flux conductifs = conductivité*gradient(T)
 
-    @compute_solve_transi.needed
+    @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_flows_solve(self, z=None):
         if z is None:
             return self._flows
