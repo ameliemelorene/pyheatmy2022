@@ -37,8 +37,16 @@ class Column:
 
         self._real_z = np.array([0] + depth_sensors) + offset
         self._real_z[0] -= offset
-        self._states = None
+
+        self._param = None
         self._z_solve = None
+        self._temps = None
+        self._H_res = None
+        self._flows = None
+
+        self._states = None
+        self._quantiles_temps = None
+        self._quantiles_flows = None
 
     @classmethod
     def from_dict(cls, col_dict):
@@ -90,12 +98,12 @@ class Column:
 
         nablaH = np.zeros((nb_cells, len(self._times)), np.float32)
 
-        nablaH[0, :] = 2*(H_res[0, :] - H_riv)/dz
+        nablaH[0, :] = 2*(H_res[1, :] - H_riv)/(3*dz)
 
         for i in range(1, nb_cells - 1):
             nablaH[i, :] = (H_res[i+1, :] - H_res[i-1, :])/(2*dz)
 
-        nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 1, :])/dz
+        nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 2, :])/(3*dz)
 
         self._flows = -K * nablaH
 
@@ -118,19 +126,17 @@ class Column:
         if z is None:
             return self._temps
         z_ind = np.argmin(np.abs(self.depths_solve - z))
-        return self._temps[:, z_ind]
+        return self._temps[z_ind, :]
 
     temps_solve = property(get_temps_solve)
 
     @compute_solve_transi.needed
     def get_advec_flows_solve(self):
-        dz = abs(self._z_solve[1] - self._z_solve[0])
         return (
-            -RHO_W
+            RHO_W
             * C_W
-            * 10 ** -self._param.moinslog10K
-            * np.gradient(self._H_res, dz, axis=-1)
-            * (self.temps_solve - (273.15 if self.temps_solve[0, 0] > 200 else 0))
+            * self._flows
+            * self.temps_solve
         )
 
     advec_flows_solve = property(get_advec_flows_solve)
@@ -141,8 +147,21 @@ class Column:
             self._param.n * (LAMBDA_W) ** 0.5
             + (1.0 - self._param.n) * (self._param.lambda_s) ** 0.5
         ) ** 2
-        dz = abs(self._z_solve[1] - self._z_solve[0])
-        return lambda_m * np.gradient(self.temps_solve, dz, axis=-1)
+
+        dz = self._z_solve[1] - self._z_solve[0]
+        nb_cells = len(self._z_solve)
+
+        nablaT = np.zeros((nb_cells, len(self._times)), np.float32)
+
+        nablaT[0, :] = 2*(self._temps[1, :] - self._T_riv)/(3*dz)
+
+        for i in range(1, nb_cells - 1):
+            nablaT[i, :] = (self._temps[i+1, :] - self._temps[i-1, :])/(2*dz)
+
+        nablaT[nb_cells - 1, :] = 2 * \
+            (self._T_aq - self._temps[nb_cells - 2, :])/(3*dz)
+
+        return lambda_m * nablaT
 
     conduc_flows_solve = property(get_conduc_flows_solve)
 
@@ -151,7 +170,7 @@ class Column:
         if z is None:
             return self._flows
         z_ind = np.argmin(np.abs(self.depths_solve - z))
-        return self._flows[:, z_ind]
+        return self._flows[z_ind, :]
 
     flows_solve = property(get_flows_solve)
 
@@ -180,7 +199,7 @@ class Column:
             for z in self._real_z[1:-1]
         ]
 
-        temp_ref = self._T_measures[:, :]
+        temp_ref = self._T_measures[:, :].T
 
         def compute_energy(temp: np.array, sigma_obs: float = 1):
             # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
@@ -204,8 +223,8 @@ class Column:
         self._states = list()
 
         nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size
-        _temps = np.zeros((nb_iter + 1, len(self._times), nb_z), np.float32)
-        _flows = np.zeros((nb_iter + 1, len(self._times)), np.float32)
+        _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
+        _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
 
         for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
             init_param = priors.sample_params()
@@ -214,7 +233,7 @@ class Column:
             self._states.append(
                 State(
                     params=init_param,
-                    energy=compute_energy(self.temps_solve[:, ind_ref]),
+                    energy=compute_energy(self.temps_solve[ind_ref, :]),
                     ratio_accept=1,
                 )
             )
@@ -227,7 +246,7 @@ class Column:
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
             self.compute_solve_transi(params, nb_cells, verbose=False)
-            energy = compute_energy(self.temps_solve[:, ind_ref])
+            energy = compute_energy(self.temps_solve[ind_ref, :])
             ratio_accept = compute_acceptance(energy, self._states[-1].energy)
             if random() < ratio_accept:
                 self._states.append(
