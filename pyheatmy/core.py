@@ -8,10 +8,10 @@ import numpy as np
 from tqdm import trange
 from scipy.interpolate import lagrange
 
-from .params import Param, ParamsPriors, Prior
+from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State
 from .checker import checker
-from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_H, compute_T
+from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T
 
 
 class Column:
@@ -168,8 +168,8 @@ class Column:
             quantile = [quantile]
 
         priors = ParamsPriors(
-            [Prior((a, b), c) for (a, b), c in (priors[lbl]
-                                                for lbl in PARAM_LIST)]
+            [Prior(*args) for args in (priors[lbl]
+                                                for lbl in PARAM_LIST)] #usefull for optionnal arguments
         )
 
         ind_ref = [
@@ -187,8 +187,9 @@ class Column:
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
 
-        def compute_acceptance(actual_energy: float, prev_energy: float):
-            return min(1, np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
+        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, priors):
+            #min useless
+            return min(1, (prev_sigma*priors.prior_list[-1].density(actual_sigma)/(actual_sigma*priors[-1].density(prev_sigma)))*np.exp((prev_energy - actual_energy)  / len(self._times) ** 1))
 
         if verbose:
             print(
@@ -214,7 +215,7 @@ class Column:
             self._states.append(
                 State(
                     params=init_param,
-                    energy=compute_energy(self.temps_solve[:, ind_ref]),
+                    energy=compute_energy(self.temps_solve[:, ind_ref], sigma_obs = init_param.sigma_temp),
                     ratio_accept=1,
                 )
             )
@@ -227,8 +228,8 @@ class Column:
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
             self.compute_solve_transi(params, nb_cells, verbose=False)
-            energy = compute_energy(self.temps_solve[:, ind_ref])
-            ratio_accept = compute_acceptance(energy, self._states[-1].energy)
+            energy = compute_energy(self.temps_solve[:, ind_ref], sigma_obs = params.sigma_temp)
+            ratio_accept = compute_acceptance(energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
             if random() < ratio_accept:
                 self._states.append(
                     State(
@@ -310,6 +311,12 @@ class Column:
         return [s.params.rhos_cs for s in self._states]
 
     all_rhos_cs = property(get_all_rhos_cs)
+
+    @compute_mcmc.needed
+    def get_all_sigma(self) :
+        return [s.params.sigma_temp for s in self._states]
+
+    all_sigma = property(get_all_sigma)
 
     @compute_mcmc.needed
     def get_all_energy(self):
