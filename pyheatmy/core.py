@@ -27,10 +27,10 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     ):
         # ! Pour l'instant on suppose que les temps matchent
         self._times = [t for t, _ in dH_measures]#récupère la liste des temps
-        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère la liste des charges au de la riviière (=sommet de la colonne) (au cours du temps)
-        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère la liste de température de la rivière (=sommet de la colonne) (au cours du temps)
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère la liste de température de l'aquifère (au cours du temps)
-        self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère la liste de températures des capteurs (au cours du temps)
+        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère le tableau des charges au niveau de la riviière (=sommet de la colonne) (au cours du temps)
+        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère le tableau de température de la rivière (=sommet de la colonne) (au cours du temps)
+        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère le tableau de température de l'aquifère (au cours du temps)
+        self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère le tableau de températures des capteurs (au cours du temps)
 
         self._real_z = np.array([0] + depth_sensors) + offset #décale d'un offset les positions des capteurs de température (aussi riviere)
         self._real_z[0] -= offset #enlève l'offset sur la mesure de température rivière car cette mesure est prise dans le capteur pression
@@ -40,9 +40,9 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
         self._param = None#les paramètres moinslog10K,n,lambda_s,rhos_cs
         self._z_solve = None#le tableau contenant la profondeur du milieu des cellules
-        self._temps = None
-        self._H_res = None
-        self._flows = None
+        self._temps = None#le tableau contenant les températures à tout temps et à toute profondeur (lignes : températures) (colonnes : temps)
+        self._H_res = None#le tableau contenant les charges à tout temps et à toute profondeur (lignes : charges) (colonnes : temps)
+        self._flows = None#le tableau contenant le débit spécifique à tout temps et à toute profondeur (lignes : débit) (colonnes : temps)
 
         self._states = None
         self._quantiles_temps = None
@@ -84,20 +84,20 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         # temps[0] = np.linspace(self._T_riv[0], self._T_aq[0], nb_cells)
         lagr = lagrange(
             self._real_z, [self._T_riv[0], *self._T_measures[0], self._T_aq[0]]
-        )
+        )#crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
 
-        T_init = lagr(self._z_solve)
+        T_init = lagr(self._z_solve)#crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
         T_res = compute_T(
             param.moinslog10K, param.n, param.lambda_s, param.rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq
-        )
+        )#calcule toutes les températures à tout temps et à toute profondeur
 
         self._temps = T_res
-        self._H_res = H_res
+        self._H_res = H_res#stocke les résultats
 
-        nablaH = np.zeros((nb_cells, len(self._times)), np.float32)
+        nablaH = np.zeros((nb_cells, len(self._times)), np.float32)#création d'un tableau du gradient de la charge selon la profondeur, calculé à tout temps
 
         nablaH[0, :] = 2*(H_res[1, :] - H_riv)/(3*dz)
 
@@ -106,7 +106,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
         nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 2, :])/(3*dz)
 
-        self._flows = -K * nablaH
+        self._flows = -K * nablaH#calcul du débit spécifique
 
         if verbose:
             print("Done.")
