@@ -27,7 +27,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     ):
         # ! Pour l'instant on suppose que les temps matchent
         self._times = [t for t, _ in dH_measures]
-        self._dH = np.array([d for _, (d, _) in dH_measures]))
+        self._dH = np.array([d for _, (d, _) in dH_measures])
         self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère la liste de température de la rivière (au cours du temps)
         self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère la liste de température de l'aquifère (au cours du temps)
         self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère la liste de températures des capteurs (au cours du temps)
