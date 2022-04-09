@@ -1,3 +1,4 @@
+from multiprocessing.sharedctypes import Value
 from typing import Sequence, Union
 from random import random, choice
 from operator import attrgetter
@@ -11,7 +12,10 @@ from scipy.interpolate import lagrange
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State
 from .checker import checker
-from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T
+
+from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_H, compute_T, compute_H_stratified, compute_T_stratified
+from .layers import Layer, getListParameters, sortLayersList
+
 
 
 class Column:#colonne de sédiments verticale entre le lit de la rivière et l'aquifère
@@ -38,7 +42,8 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         self.depth_sensors = depth_sensors
         self.offset = offset
 
-        self._param = None
+        self._layersList = None
+
         self._z_solve = None
         self._temps = None
         self._H_res = None
@@ -52,45 +57,59 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     def from_dict(cls, col_dict):
         return cls(**col_dict)
 
-    @checker
-    def compute_solve_transi(self, param: tuple, nb_cells: int, verbose=True):
-        if not isinstance(param, Param):
-            param = Param(*param)
-        self._param = param
+    def _check_layers(self, layersList):
+        self._layersList = sortLayersList(layersList)
 
-        if verbose:
-            print("--- Compute Solve Transi ---", self._param, sep="\n")
+        if len(self._layersList) == 0:
+            raise ValueError("Your list of layers is empty.")
 
+        if self._layersList[0].zHigh != self._real_z[0]:
+            raise ValueError(
+                "First layer does not match the beginning of the column.")
+
+        for layer_1, layer_2 in zip(self._layersList, self._layersList[1:]):
+            if layer_1.zLow != layer_2.zHigh:
+                raise ValueError("Two consecutive layers do not match.")
+
+        if self._layersList[-1].zLow != self._real_z[-1]:
+            raise ValueError(
+                "Last layer does not match the end of the column.")
+
+    def _compute_solve_transi_one_layer(self, layer, nb_cells, verbose=True):
         dz = self._real_z[-1] / nb_cells
-
         self._z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
-
-        K = 10 ** -param.moinslog10K
-        heigth = abs(self._real_z[-1] - self._real_z[0])
-        Ss = param.n / heigth
 
         all_dt = np.array([(self._times[j+1] - self._times[j]).total_seconds()
                            for j in range(len(self._times) - 1)])
-
         isdtconstant = np.all(all_dt == all_dt[0])
 
         H_init = np.linspace(self._dH[0], 0, nb_cells)
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH
 
-        H_res = compute_H(K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq)
-
-        # temps[0] = np.linspace(self._T_riv[0], self._T_aq[0], nb_cells)
         lagr = lagrange(
-            self._real_z, [self._T_riv[0], *self._T_measures[0], self._T_aq[0]]
+            self._real_z, [self._T_riv[0], *
+                           self._T_measures[0], self._T_aq[0]]
         )
 
         T_init = lagr(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
+        moinslog10K, n, lambda_s, rhos_cs = layer.params
+
+        if verbose:
+            print("--- Compute Solve Transi ---",
+                  f"One layer : moinslog10K = {moinslog10K}, n = {n}, lambda_s = {lambda_s}, rhos_cs = {rhos_cs}", sep="\n")
+
+        heigth = abs(self._real_z[-1] - self._real_z[0])
+        Ss = n / heigth
+
+        H_res = compute_H(moinslog10K, Ss, all_dt,
+                          isdtconstant, dz, H_init, H_riv, H_aq)
+
         T_res = compute_T(
-            param.moinslog10K, param.n, param.lambda_s, param.rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq
+            moinslog10K, n, lambda_s, rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq
         )
 
         self._temps = T_res
@@ -105,12 +124,96 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
         nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 2, :])/(3*dz)
 
+        K = 10 ** - moinslog10K
         self._flows = -K * nablaH
 
         if verbose:
             print("Done.")
 
-    @compute_solve_transi.needed
+    def _compute_solve_transi_multiple_layers(self, layersList, nb_cells, verbose):
+        dz = self._real_z[-1] / nb_cells
+        self._z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
+
+        all_dt = np.array([(self._times[j+1] - self._times[j]).total_seconds()
+                           for j in range(len(self._times) - 1)])
+        isdtconstant = np.all(all_dt == all_dt[0])
+
+        H_init = np.linspace(self._dH[0], 0, nb_cells)
+        H_aq = np.zeros(len(self._times))
+        H_riv = self._dH
+
+        lagr = lagrange(
+            self._real_z, [self._T_riv[0], *
+                           self._T_measures[0], self._T_aq[0]]
+        )
+
+        T_init = lagr(self._z_solve)
+        T_riv = self._T_riv
+        T_aq = self._T_aq
+
+        moinslog10K_list, n_list, lambda_s_list, rhos_cs_list = getListParameters(
+            layersList, nb_cells)
+
+        heigth = abs(self._real_z[-1] - self._real_z[0])
+        Ss_list = n_list / heigth
+
+        if verbose:
+            print("--- Compute Solve Transi ---")
+            for layer in layersList:
+                print(layer)
+
+        H_res = compute_H_stratified(
+            moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_init, H_riv, H_aq)
+
+        T_res = compute_T_stratified(moinslog10K_list, n_list, lambda_s_list,
+                                     rhos_cs_list, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq)
+
+        self._temps = T_res
+        self._H_res = H_res
+
+        nablaH = np.zeros((nb_cells, len(self._times)), np.float32)
+
+        nablaH[0, :] = 2*(H_res[1, :] - H_riv)/(3*dz)
+
+        for i in range(1, nb_cells - 1):
+            nablaH[i, :] = (H_res[i+1, :] - H_res[i-1, :])/(2*dz)
+
+        nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 2, :])/(3*dz)
+
+        K_list = 10 ** - moinslog10K_list
+
+        flows = np.zeros((nb_cells, len(self._times)), np.float32)
+
+        for i in range(nb_cells):
+            flows[i, :] = - K_list[i]*nablaH[i, :]
+
+        self._flows = flows
+
+        if verbose:
+            print("Done.")
+
+    @checker
+    def compute_solve_transi(self, layersList: Union[tuple, Sequence[Layer]], nb_cells: int, verbose=True):
+
+        # List of layers or tuple ?
+        if isinstance(layersList, tuple):
+            layer = [Layer("Layer 1", self._real_z[0], self._real_z[-1],
+                           layersList[0], layersList[1], layersList[2], layersList[3])]
+            self.compute_solve_transi(layer, nb_cells, verbose)
+
+        else:
+            # Checking the layers are well defined
+            self._check_layers(layersList)
+
+            if len(self._layersList) == 1:
+                self._compute_solve_transi_one_layer(
+                    self._layersList[0], nb_cells, verbose)
+
+            else:
+                self._compute_solve_transi_multiple_layers(
+                    self._layersList, nb_cells, verbose)
+
+    @ compute_solve_transi.needed
     def get_depths_solve(self):
         return self._z_solve
 
@@ -121,7 +224,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
     times_solve = property(get_times_solve)
 
-    @compute_solve_transi.needed
+    @ compute_solve_transi.needed
     def get_temps_solve(self, z=None):
         if z is None:
             return self._temps
@@ -130,7 +233,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
     temps_solve = property(get_temps_solve)
 
-    @compute_solve_transi.needed
+    @ compute_solve_transi.needed
     def get_advec_flows_solve(self):
         return (
             RHO_W
@@ -141,15 +244,18 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
     advec_flows_solve = property(get_advec_flows_solve)
 
-    @compute_solve_transi.needed
+    @ compute_solve_transi.needed
     def get_conduc_flows_solve(self):
-        lambda_m = (
-            self._param.n * (LAMBDA_W) ** 0.5
-            + (1.0 - self._param.n) * (self._param.lambda_s) ** 0.5
-        ) ** 2
-
         dz = self._z_solve[1] - self._z_solve[0]
         nb_cells = len(self._z_solve)
+
+        _, n_list, lambda_s_list, _ = getListParameters(
+            self._layersList, nb_cells)
+
+        lambda_m_list = (
+            n_list * (LAMBDA_W) ** 0.5
+            + (1.0 - n_list) * (lambda_s_list) ** 0.5
+        ) ** 2
 
         nablaT = np.zeros((nb_cells, len(self._times)), np.float32)
 
@@ -161,11 +267,16 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         nablaT[nb_cells - 1, :] = 2 * \
             (self._T_aq - self._temps[nb_cells - 2, :])/(3*dz)
 
-        return lambda_m * nablaT
+        conduc_flows = np.zeros((nb_cells, len(self._times)), np.float32)
+
+        for i in range(nb_cells):
+            conduc_flows[i, :] = lambda_m_list[i] * nablaT[i, :]
+
+        return conduc_flows
 
     conduc_flows_solve = property(get_conduc_flows_solve)
 
-    @compute_solve_transi.needed
+    @ compute_solve_transi.needed
     def get_flows_solve(self, z=None):
         if z is None:
             return self._flows
@@ -174,7 +285,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
     flows_solve = property(get_flows_solve)
 
-    @checker
+    @ checker
     def compute_mcmc(
         self,
         nb_iter: int,
@@ -280,52 +391,52 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         if verbose:
             print("Quantiles Done.")
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_depths_mcmc(self):
         return self._real_z  #plus cohérent que de renvoyer le time
 
     depths_mcmc = property(get_depths_mcmc)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_times_mcmc(self):
         return self._times
 
     times_mcmc = property(get_times_mcmc)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def sample_param(self):
         return choice([s.params for s in self._states])
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_best_param(self):
         """return the params that minimize the energy"""
         return min(self._states, key=attrgetter("energy")).params
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_all_params(self):
         return [s.params for s in self._states]
 
     all_params = property(get_all_params)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_all_moinslog10K(self):
         return [s.params.moinslog10K for s in self._states]
 
     all_moinslog10K = property(get_all_moinslog10K)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_all_n(self):
         return [s.params.n for s in self._states]
 
     all_n = property(get_all_n)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_all_lambda_s(self):
         return [s.params.lambda_s for s in self._states]
 
     all_lambda_s = property(get_all_lambda_s)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_all_rhos_cs(self):
         return [s.params.rhos_cs for s in self._states]
 
@@ -337,22 +448,22 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
     all_sigma = property(get_all_sigma)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_all_energy(self):
         return [s.energy for s in self._states]
 
     all_energy = property(get_all_energy)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_all_acceptance_ratio(self):
         return [s.ratio_accept for s in self._states]
 
     all_acceptance_ratio = property(get_all_acceptance_ratio)
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_temps_quantile(self, quantile):
         return self._quantiles_temps[quantile]
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_flows_quantile(self, quantile):
         return self._quantiles_flows[quantile]
