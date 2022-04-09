@@ -9,35 +9,38 @@ import numpy as np
 from tqdm import trange
 from scipy.interpolate import lagrange
 
-from .params import Param, ParamsPriors, Prior
+from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State
 from .checker import checker
+
 from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_H, compute_T, compute_H_stratified, compute_T_stratified
 from .layers import Layer, getListParameters, sortLayersList
 
 
-class Column:
+
+class Column:#colonne de sédiments verticale entre le lit de la rivière et l'aquifère
     def __init__(
         self,
-        river_bed: float,
-        depth_sensors: Sequence[float],
-        offset: float,
-        dH_measures: list,
-        T_measures: list,
-        sigma_meas_P: float,
-        sigma_meas_T: float,
+        river_bed: float,#profondeur de la colonne en mètres
+        depth_sensors: Sequence[float],#profondeur des capteurs de températures en mètres
+        offset: float,#correspond au décalage du capteur de température par rapport au lit de la rivière
+        dH_measures: list,#liste contenant un tuple avec la date, la charge et la température au sommet de la colonne
+        T_measures: list,#liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
+        sigma_meas_P: float,#écart type de l'incertitude sur les valeurs de pression capteur
+        sigma_meas_T: float,#écart type de l'incertitude sur les valeurs de température capteur
     ):
+        # ! Pour l'instant on suppose que les temps matchent
+        self._times = [t for t, _ in dH_measures]
+        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère la liste des charges de la riviière (au cours du temps)
+        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère la liste de température de la rivière (au cours du temps)
+        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère la liste de température de l'aquifère (au cours du temps)
+        self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère la liste de températures des capteurs (au cours du temps)
+
+        self._real_z = np.array([0] + depth_sensors) + offset #décale d'un offset les positions des capteurs de température (aussi riviere)
+        self._real_z[0] -= offset #enlève l'offset sur la mesure de température rivière car cette mesure est prise dans le capteur pression
+      
         self.depth_sensors = depth_sensors
         self.offset = offset
-
-        self._times = [t for t, _ in dH_measures]
-        self._dH = np.array([d for _, (d, _) in dH_measures])
-        self._T_riv = np.array([t for _, (_, t) in dH_measures])
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])
-        self._T_measures = np.array([t[:-1] for _, t in T_measures])
-
-        self._real_z = np.array([0] + depth_sensors) + offset
-        self._real_z[0] -= offset
 
         self._layersList = None
 
@@ -295,8 +298,8 @@ class Column:
             quantile = [quantile]
 
         priors = ParamsPriors(
-            [Prior((a, b), c) for (a, b), c in (priors[lbl]
-                                                for lbl in PARAM_LIST)]
+            [Prior(*args) for args in (priors[lbl]
+                                                for lbl in PARAM_LIST)] #usefull for optionnal arguments
         )
 
         ind_ref = [
@@ -313,9 +316,10 @@ class Column:
             # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
-
-        def compute_acceptance(actual_energy: float, prev_energy: float):
-            return min(1, np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
+          
+        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, priors):
+            #min useless
+            return min(1, (prev_sigma*priors.prior_list[-1].density(actual_sigma)/(actual_sigma*priors[-1].density(prev_sigma)))*np.exp((prev_energy - actual_energy)  / len(self._times) ** 1))
 
         if verbose:
             print(
@@ -341,7 +345,7 @@ class Column:
             self._states.append(
                 State(
                     params=init_param,
-                    energy=compute_energy(self.temps_solve[ind_ref, :]),
+                    energy=compute_energy(self.temps_solve[ind_ref, :], sigma_obs = init_param.sigma_temp),
                     ratio_accept=1,
                 )
             )
@@ -354,8 +358,8 @@ class Column:
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
             self.compute_solve_transi(params, nb_cells, verbose=False)
-            energy = compute_energy(self.temps_solve[ind_ref, :])
-            ratio_accept = compute_acceptance(energy, self._states[-1].energy)
+            energy = compute_energy(self.temps_solve[ind_ref, :], sigma_obs = params.sigma_temp)
+            ratio_accept = compute_acceptance(energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
             if random() < ratio_accept:
                 self._states.append(
                     State(
@@ -389,7 +393,7 @@ class Column:
 
     @ compute_mcmc.needed
     def get_depths_mcmc(self):
-        return self._times
+        return self._real_z  #plus cohérent que de renvoyer le time
 
     depths_mcmc = property(get_depths_mcmc)
 
@@ -437,6 +441,12 @@ class Column:
         return [s.params.rhos_cs for s in self._states]
 
     all_rhos_cs = property(get_all_rhos_cs)
+    
+    @compute_mcmc.needed
+    def get_all_sigma(self) :
+        return [s.params.sigma_temp for s in self._states]
+
+    all_sigma = property(get_all_sigma)
 
     @ compute_mcmc.needed
     def get_all_energy(self):
