@@ -2,7 +2,13 @@ import numpy as np
 from .params import Param
 
 
-class Layer:
+class Layer(object):
+    def __new__(cls, name: str, zHigh: float, zLow: float, moinslog10K: float, n: float, lambda_s: float, rhos_cs: float):
+        if zHigh < zLow:
+            return object.__new__(cls)
+        else:
+            raise ValueError("zHigh must be less than zLow")
+
     def __init__(self, name: str, zHigh: float, zLow: float, moinslog10K: float, n: float, lambda_s: float, rhos_cs: float):
         self.name = name
         self.zHigh = zHigh
