@@ -204,7 +204,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         # List of layers or tuple ?
         if isinstance(layersList, tuple):
-            layer = [Layer("Layer 1", self._real_z[0], self._real_z[-1],
+            layer = [Layer("Layer 1", self._real_z[-1],
                            layersList[0], layersList[1], layersList[2], layersList[3])]
             self.compute_solve_transi(layer, nb_cells, verbose)
 
