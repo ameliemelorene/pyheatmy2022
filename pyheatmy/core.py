@@ -13,67 +13,6 @@ from .state import State
 from .checker import checker
 from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_H, compute_T
 
-#class Layer:
-    #def __init__(self,id):
-        #self.id = id
-        #for i in range(0,Nparam):
-        #i += 1
-        #self.Param[i] = Param()
-
-#class Param:
-
-##copy from codepyheat.geometry.py
-class Point:
-    
-    def __init__(self, x, z):
-        self.x = x
-        self.z = z
-
-    #def __str__(self) -> str:
-        #return "({},{}  {})".format(self.x, self.z, super.__str__(self))
-
-class Geometry:
-
-    area = 0
-
-    def __init__(self, center, lenTuple):
-        self.center = center
-        self.lenTuple = lenTuple
-
-    def getArea(self):
-        if self.area == 0:
-            self.area = self.lenTuple[X]*self.lenTuple[Z]
-        return self.area
-        # return self.lenTuple[X]*self.lenTuple[Z]
-
-class Face:
-    def __init__(self, id, length, dist):
-        self.len = length
-        self.dist = dist  # dist to next cell center
-        # used for physical problem solving
-        self.hydro = Hydro()
-        self.heat = Heat()
-        self.id = id
-
-class Cell:
-    def __init__(self, id, Center, SideLenTuple):
-        self.id = id
-        self.geom = Geometry(Center, SideLenTuple)
-        self.face = [[], []]
-        for i in range(NDIM):
-            # self.face[i] = []
-            for j in range(NDIM):
-                idFace = "{}{}{}".format(id, printDir(i), printDirCard(i, j))
-                self.face[i].append(
-                    Face(idFace, SideLenTuple[complement(i)], SideLenTuple[i])
-                )
-        self.hydro = Hydro()
-        self.heat = Heat()
-
-    def getFace(self, dir, num):
-        return self.face[dir][num]
-##copy from codepyheat.geometry.py
-
 class Column:
     def __init__(
         self,
