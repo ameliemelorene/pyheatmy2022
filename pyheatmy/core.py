@@ -58,6 +58,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         self._flows = None
 
         self._states = None
+        self._initial_energies = None
         self._quantiles_temps = None
         self._quantiles_flows = None
 
@@ -357,6 +358,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                 )
             )
 
+        self._initial_energies = [state.energy for state in self._states]
         self._states = [min(self._states, key=attrgetter("energy"))]
 
         _temps[0] = self.temps_solve
@@ -459,7 +461,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
     @ compute_mcmc.needed
     def get_all_energy(self):
-        return [s.energy for s in self._states]
+        return self._initial_energies + [s.energy for s in self._states]
 
     all_energy = property(get_all_energy)
 
