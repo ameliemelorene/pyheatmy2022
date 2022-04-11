@@ -174,11 +174,12 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_flows_solve(self, z=None):
         if z is None:
-            return self._flows
+            return self._flows#par défaut, retourne le tableau des débits spécifiques
         z_ind = np.argmin(np.abs(self.depths_solve - z))
-        return self._flows[z_ind, :]
+        return self._flows[z_ind, :]#sinon ne les retourne que pour la profondeur choisie
 
     flows_solve = property(get_flows_solve)
+#récupération des débits spécifiques au cours du temps à toutes les profondeurs (par défaut) ou bien à une profondeur donnée
 
     @checker
     def compute_mcmc(
