@@ -44,7 +44,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         self._H_res = None#le tableau contenant les charges à tout temps et à toute profondeur (lignes : charges) (colonnes : temps)
         self._flows = None#le tableau contenant le débit spécifique à tout temps et à toute profondeur (lignes : débit) (colonnes : temps)
 
-        self._states = None
+        self._states = None# liste 
         self._quantiles_temps = None
         self._quantiles_flows = None
 
@@ -183,38 +183,42 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
     @checker
     def compute_mcmc(
-        self,
-        nb_iter: int,
-        priors: dict,
-        nb_cells: int,
-        quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
-        verbose=True,
+        self,#la colonne
+        nb_iter: int, 
+        priors: dict, #dictionnaire défini dans params.py, contentant écart type et range si on considère une distribution normale, contenant aussi fonction de répartition sinon
+        nb_cells: int, #le nombre de cellules de la colonne
+        quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95), #les quantiles pour l'affichage de stats sur les valeurs de température
+        verbose=True, #affiche texte explicatifs ou non
     ):
-        if isinstance(quantile, Number):
+        if isinstance(quantile, Number):#si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
             quantile = [quantile]
 
         priors = ParamsPriors(
             [Prior((a, b), c) for (a, b), c in (priors[lbl]
                                                 for lbl in PARAM_LIST)]
-        )
+        );#va rechanger avec les modifs de valentin, je recommenterai après avoir rajouté les modifs de valentin à mon main
 
         ind_ref = [
             np.argmin(
                 np.abs(
                     z - np.linspace(self._real_z[0], self._real_z[-1], nb_cells))
-            )
-            for z in self._real_z[1:-1]
+            )#renvoie la position de la celulle dont le milieu est le plus proche de la position du capteur de température 
+            for z in self._real_z[1:-1]#pour les emplacements des 4 capteurs de température
         ]
-
-        temp_ref = self._T_measures[:, :].T
+#liste des indices des cellules contenant les capteur de température : exigence de l'IHM
+        temp_ref = self._T_measures[:, :].T#prend la transposée pour avoir en ligne les points de mesures et en colonnes les temps (par souci de cohérence avec les tableaux de résultats de la simulation)
 
         def compute_energy(temp: np.array, sigma_obs: float = 1):
             # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
+            #énergie definit par 1/2sigma²||T-Tref||²+ln(T), ici on ne cherche pas à minimiser le terme en ln car il est constant
+            #l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire
 
         def compute_acceptance(actual_energy: float, prev_energy: float):
             return min(1, np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
+            # probabilité d'acceptation      
+
 
         if verbose:
             print(
@@ -229,11 +233,11 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
         self._states = list()
 
-        nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size
-        _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
-        _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
+        nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size#nombre de profondeurs (=nb.cells)
+        _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de températures des différentes profondeurs en fonction du temps à chaque étape de MCMC
+        _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de débits spécifiques des différentes profondeurs en fonction du temps à chaque étape de MCMC
 
-        for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
+        for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):#initialisation des tableaux de résultats de la MCMC, 1000 nombre arbitraire du TP
             init_param = priors.sample_params()
             self.compute_solve_transi(init_param, nb_cells, verbose=False)
 
