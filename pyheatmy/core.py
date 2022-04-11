@@ -13,43 +13,52 @@ from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State
 from .checker import checker
 
-from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_H, compute_T, compute_H_stratified, compute_T_stratified
+from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T, compute_H_stratified, compute_T_stratified
 from .layers import Layer, getListParameters, sortLayersList
 
 
-
-class Column:#colonne de sédiments verticale entre le lit de la rivière et l'aquifère
+class Column:  # colonne de sédiments verticale entre le lit de la rivière et l'aquifère
     def __init__(
         self,
-        river_bed: float,#profondeur de la colonne en mètres
-        depth_sensors: Sequence[float],#profondeur des capteurs de températures en mètres
-        offset: float,#correspond au décalage du capteur de température par rapport au lit de la rivière
-        dH_measures: list,#liste contenant un tuple avec la date, la charge et la température au sommet de la colonne
-        T_measures: list,#liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
-        sigma_meas_P: float,#écart type de l'incertitude sur les valeurs de pression capteur
-        sigma_meas_T: float,#écart type de l'incertitude sur les valeurs de température capteur
+        river_bed: float,  # profondeur de la colonne en mètres
+        # profondeur des capteurs de températures en mètres
+        depth_sensors: Sequence[float],
+        offset: float,  # correspond au décalage du capteur de température par rapport au lit de la rivière
+        # liste contenant un tuple avec la date, la charge et la température au sommet de la colonne
+        dH_measures: list,
+        T_measures: list,  # liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
+        sigma_meas_P: float,  # écart type de l'incertitude sur les valeurs de pression capteur
+        sigma_meas_T: float,  # écart type de l'incertitude sur les valeurs de température capteur
     ):
         # ! Pour l'instant on suppose que les temps matchent
         self._times = [t for t, _ in dH_measures]
-        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère la liste des charges de la riviière (au cours du temps)
-        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère la liste de température de la rivière (au cours du temps)
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère la liste de température de l'aquifère (au cours du temps)
-        self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère la liste de températures des capteurs (au cours du temps)
+        # récupère la liste des charges de la riviière (au cours du temps)
+        self._dH = np.array([d for _, (d, _) in dH_measures])
+        # récupère la liste de température de la rivière (au cours du temps)
+        self._T_riv = np.array([t for _, (_, t) in dH_measures])
+        # récupère la liste de température de l'aquifère (au cours du temps)
+        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])
+        # récupère la liste de températures des capteurs (au cours du temps)
+        self._T_measures = np.array([t[:-1] for _, t in T_measures])
 
-        self._real_z = np.array([0] + depth_sensors) + offset #décale d'un offset les positions des capteurs de température (aussi riviere)
-        self._real_z[0] -= offset #enlève l'offset sur la mesure de température rivière car cette mesure est prise dans le capteur pression
-      
+        # décale d'un offset les positions des capteurs de température (aussi riviere)
+        self._real_z = np.array([0] + depth_sensors) + offset
+        # enlève l'offset sur la mesure de température rivière car cette mesure est prise dans le capteur pression
+        self._real_z[0] -= offset
+
         self.depth_sensors = depth_sensors
         self.offset = offset
 
         self._layersList = None
 
         self._z_solve = None
+        self._id_sensors = None
         self._temps = None
         self._H_res = None
         self._flows = None
 
         self._states = None
+        self._initial_energies = None
         self._quantiles_temps = None
         self._quantiles_flows = None
 
@@ -63,14 +72,6 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         if len(self._layersList) == 0:
             raise ValueError("Your list of layers is empty.")
 
-        if self._layersList[0].zHigh != self._real_z[0]:
-            raise ValueError(
-                "First layer does not match the beginning of the column.")
-
-        for layer_1, layer_2 in zip(self._layersList, self._layersList[1:]):
-            if layer_1.zLow != layer_2.zHigh:
-                raise ValueError("Two consecutive layers do not match.")
-
         if self._layersList[-1].zLow != self._real_z[-1]:
             raise ValueError(
                 "Last layer does not match the end of the column.")
@@ -78,6 +79,9 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     def _compute_solve_transi_one_layer(self, layer, nb_cells, verbose=True):
         dz = self._real_z[-1] / nb_cells
         self._z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
+
+        self._id_sensors = [np.argmin(np.abs(z - self._z_solve))
+                            for z in self._real_z[1:-1]]
 
         all_dt = np.array([(self._times[j+1] - self._times[j]).total_seconds()
                            for j in range(len(self._times) - 1)])
@@ -133,6 +137,9 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     def _compute_solve_transi_multiple_layers(self, layersList, nb_cells, verbose):
         dz = self._real_z[-1] / nb_cells
         self._z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
+
+        self._id_sensors = [np.argmin(np.abs(z - self._z_solve))
+                            for z in self._real_z[1:-1]]
 
         all_dt = np.array([(self._times[j+1] - self._times[j]).total_seconds()
                            for j in range(len(self._times) - 1)])
@@ -299,7 +306,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
         priors = ParamsPriors(
             [Prior(*args) for args in (priors[lbl]
-                                                for lbl in PARAM_LIST)] #usefull for optionnal arguments
+                                       for lbl in PARAM_LIST)]  # usefull for optionnal arguments
         )
 
         ind_ref = [
@@ -316,10 +323,10 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
             # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
-          
+
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, priors):
-            #min useless
-            return min(1, (prev_sigma*priors.prior_list[-1].density(actual_sigma)/(actual_sigma*priors[-1].density(prev_sigma)))*np.exp((prev_energy - actual_energy)  / len(self._times) ** 1))
+            # min useless
+            return min(1, (prev_sigma*priors.prior_list[-1].density(actual_sigma)/(actual_sigma*priors[-1].density(prev_sigma)))*np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
 
         if verbose:
             print(
@@ -345,11 +352,13 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
             self._states.append(
                 State(
                     params=init_param,
-                    energy=compute_energy(self.temps_solve[ind_ref, :], sigma_obs = init_param.sigma_temp),
+                    energy=compute_energy(
+                        self.temps_solve[ind_ref, :], sigma_obs=init_param.sigma_temp),
                     ratio_accept=1,
                 )
             )
 
+        self._initial_energies = [state.energy for state in self._states]
         self._states = [min(self._states, key=attrgetter("energy"))]
 
         _temps[0] = self.temps_solve
@@ -358,8 +367,10 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
             self.compute_solve_transi(params, nb_cells, verbose=False)
-            energy = compute_energy(self.temps_solve[ind_ref, :], sigma_obs = params.sigma_temp)
-            ratio_accept = compute_acceptance(energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
+            energy = compute_energy(
+                self.temps_solve[ind_ref, :], sigma_obs=params.sigma_temp)
+            ratio_accept = compute_acceptance(
+                energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
             if random() < ratio_accept:
                 self._states.append(
                     State(
@@ -393,7 +404,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
     @ compute_mcmc.needed
     def get_depths_mcmc(self):
-        return self._real_z  #plus cohérent que de renvoyer le time
+        return self._real_z  # plus cohérent que de renvoyer le time
 
     depths_mcmc = property(get_depths_mcmc)
 
@@ -441,16 +452,16 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         return [s.params.rhos_cs for s in self._states]
 
     all_rhos_cs = property(get_all_rhos_cs)
-    
+
     @compute_mcmc.needed
-    def get_all_sigma(self) :
+    def get_all_sigma(self):
         return [s.params.sigma_temp for s in self._states]
 
     all_sigma = property(get_all_sigma)
 
     @ compute_mcmc.needed
     def get_all_energy(self):
-        return [s.energy for s in self._states]
+        return self._initial_energies + [s.energy for s in self._states]
 
     all_energy = property(get_all_energy)
 

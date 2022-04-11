@@ -8,29 +8,45 @@ RHO_W = 1000
 C_W = 4185
 
 
-from .params import PARAM_LIST 
-
 @njit
 def compute_T(
     moinslog10K, n, lambda_s, rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq, alpha=0.3
 ):
-    """
-    Computes T(z, t) by solving the heat equation : dT/dt = ke Delta T + ae nabla H nabla T
-    In matrix form, we have : A*T_{t+1} = B*T_t + c.
-    Arguments :
-        - moinslog10K = - log10(K), where K = permeability
-        - n = porosity
-        - lambda_s = thermal conductivity
-        - rho_cs = density
-        - times = list of times at which we want to compute T.
-        - dz = spatial discretization step
-        - H_res = array of H(z, t)
-        - H_riv = list of H in the river for each time
-        - H_aq = list of H in the aquifer for each time
-        - T_init = list of T(z, t=0)
-        - T_riv = list of T in the river for each time
-        - T_aq = list of T in the aquifer for each time
-        - alpha = parameter of the semi-implicit scheme
+    """ Computes T(z, t) by solving the heat equation : dT/dt = ke Delta T + ae nabla H nabla T, for an homogeneous column.
+
+    Parameters
+    ----------
+    moinslog10K : float
+        value of -log10(K), where K = permeability.
+    n : float
+        porosity.
+    lambda_s : float
+        thermal conductivity.
+    rho_cs : float
+        density.
+    all_dt : float array
+        array of temporal discretization steps.
+    dz : float
+        spatial discretization step.
+    H_res : float array
+        bidimensional array of H(z, t). Usually computed by compute_H.
+    H_riv : float array
+        boundary condition H(z = z_riv, t).
+    H_aq : float array
+        boundary condition H(z = z_aq, t).
+    T_init : float array
+        boundary condition T(z, t=0).
+    T_riv : float array
+        boundary condition T(z = z_riv, t).
+    T_aq : float array
+        boundary condition T(z = z_aq, t).
+    alpha : float, default: 0.3
+        parameter of the semi-implicit scheme. Can cause instability if too big.
+
+    Returns
+    -------
+    T_res : float array
+        bidimensional array of T(z, t).
     """
     rho_mc_m = n * RHO_W * C_W + (1 - n) * rhos_cs
     K = 10.0 ** -moinslog10K
@@ -110,18 +126,33 @@ def compute_T(
 
 @njit
 def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, alpha=0.3):
-    """
-    Computes H(z, t) by solving the diffusion equation : Ss dH/dt = K Delta H
-    In matrix form, we have : A*H_{t+1} = B*H_t + c.
-    Arguments :
-        - K = permeability
-        - Ss = specific emmagasinement
-        - times = list of times at which we want to compute H.
-        - dz = spatial discretization step
-        - H_init = list of H(z, t=0)
-        - H_riv = list of H in the river for each time
-        - H_aq = list of H in the aquifer for each time
-        - alpha = parameter of the semi-implicit scheme
+    """ Computes H(z, t) by solving the diffusion equation : Ss dH/dT = K Delta H, for an homogeneous column.
+
+    Parameters
+    ----------
+    moinslog10K : float
+        value of -log10(K) where K = permeability.
+    Ss : float
+        specific emmagasinement.
+    all_dt : float array
+        array temporal discretization steps.
+    isdtconstant : bool
+        True iff the temporal discretization step is constant.
+    dz : float
+        spatial discretization step.
+    H_init : float array
+        boundary condition H(z, t = 0).
+    H_riv : float array
+        boundary condition H(z = z_riv, t).
+    H_aq : float array
+        boundary condition H(z = z_aquifer, t).
+    alpha : float, default: 0.3
+        parameter of the semi-implicit scheme. Can cause instability if too big.
+
+    Returns
+    -------
+    H_res : float array
+        bidimensional array of H(z, t).
     """
     n_cell = len(H_init)
     n_times = len(all_dt) + 1
@@ -223,23 +254,41 @@ def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, al
 def compute_T_stratified(
     moinslog10K_list, n_list, lambda_s_list, rhos_cs_list, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq, alpha=0.3
 ):
-    """
-    Computes T(z, t) by solving the heat equation : dT/dt = ke Delta T + ae nabla H nabla T
-    In matrix form, we have : A*T_{t+1} = B*T_t + c.
-    Arguments :
-        - moinslog10K_list = - log10(K), where K = permeability
-        - n_list = porosity
-        - lambda_s_list = thermal conductivity
-        - rho_cs_list = density
-        - times = list of times at which we want to compute T.
-        - dz = spatial discretization step
-        - H_res = array of H(z, t)
-        - H_riv = list of H in the river for each time
-        - H_aq = list of H in the aquifer for each time
-        - T_init = list of T(z, t=0)
-        - T_riv = list of T in the river for each time
-        - T_aq = list of T in the aquifer for each time
-        - alpha = parameter of the semi-implicit scheme
+    """ Computes T(z, t) by solving the heat equation : dT/dt = ke Delta T + ae nabla H nabla T, for an heterogeneous column.
+
+    Parameters
+    ----------
+    moinslog10K_list : float array
+        values of -log10(K) for each cell of the column, where K = permeability.
+    n_list : float array
+        porosity for each cell of the column.
+    lambda_s_list : float array
+        thermal conductivity for each cell of the column.
+    rho_cs_list : float array
+        density for each cell of the column.
+    all_dt : float array
+        array of temporal discretization steps.
+    dz : float
+        spatial discretization step.
+    H_res : float array
+        bidimensional array of H(z, t). Usually computed by compute_H_stratified.
+    H_riv : float array
+        boundary condition H(z = z_riv, t).
+    H_aq : float array
+        boundary condition H(z = z_aq, t).
+    T_init : float array
+        boundary condition T(z, t=0).
+    T_riv : float array
+        boundary condition T(z = z_riv, t).
+    T_aq : float array
+        boundary condition T(z = z_aq, t).
+    alpha : float, default: 0.3
+        parameter of the semi-implicit scheme. Can cause instability if too big.
+
+    Returns
+    -------
+    T_res : float array
+        bidimensional array of T(z, t).
     """
     rho_mc_m_list = n_list * RHO_W * C_W + (1 - n_list) * rhos_cs_list
     K_list = 10.0 ** -moinslog10K_list
@@ -322,18 +371,33 @@ def compute_T_stratified(
 
 @njit
 def compute_H_stratified(moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, alpha=0.3):
-    """
-    Computes H(z, t) by solving the diffusion equation : Ss dH/dt = K Delta H
-    In matrix form, we have : A*H_{t+1} = B*H_t + c.
-    Arguments :
-        - K = permeability
-        - Ss = specific emmagasinement
-        - times = list of times at which we want to compute H.
-        - dz = spatial discretization step
-        - H_init = list of H(z, t=0)
-        - H_riv = list of H in the river for each time
-        - H_aq = list of H in the aquifer for each time
-        - alpha = parameter of the semi-implicit scheme
+    """ Computes H(z, t) by solving the diffusion equation : Ss dH/dT = K Delta H, for an heterogeneous column.
+
+    Parameters
+    ----------
+    moinslog10K_list : float array
+        values of -log10(K) for each cell of the column, where K = permeability.
+    Ss_list : float array
+        specific emmagasinement for each cell of the column.
+    all_dt : float array
+        array temporal discretization steps.
+    isdtconstant : bool
+        True iff the temporal discretization step is constant.
+    dz : float
+        spatial discretization step.
+    H_init : float array
+        boundary condition H(z, t = 0).
+    H_riv : float array
+        boundary condition H(z = z_riv, t).
+    H_aq : float array
+        boundary condition H(z = z_aquifer, t).
+    alpha : float, default: 0.3
+        parameter of the semi-implicit scheme. Can cause instability if too big.
+
+    Returns
+    -------
+    H_res : float array
+        bidimensional array of H(z, t).
     """
     n_cell = len(H_init)
     n_times = len(all_dt) + 1

@@ -2,7 +2,7 @@ import numpy as np
 from .params import Param
 
 
-class Layer:
+class Layer(object):
     def __init__(self, name: str, zHigh: float, zLow: float, moinslog10K: float, n: float, lambda_s: float, rhos_cs: float):
         self.name = name
         self.zHigh = zHigh
@@ -15,17 +15,17 @@ class Layer:
 
 def layersListCreator(layersListInput):
     layersList = list()
-    for name, zHigh, zLow, moinslog10K, n, lambda_s, rhos_cs in layersListInput:
+    for name, zLow, moinslog10K, n, lambda_s, rhos_cs in layersListInput:
         layersList.append(
-            Layer(name, zHigh, zLow, moinslog10K, n, lambda_s, rhos_cs))
+            Layer(name, zLow, moinslog10K, n, lambda_s, rhos_cs))
     return layersList
 
 
 def sortLayersList(layersList):
     """
-    Return a sorted list of layers (sorted by zHigh)
+    Return a sorted list of layers (sorted by zLow)
     """
-    return sorted(layersList, key=lambda x: x.zHigh)
+    return sorted(layersList, key=lambda x: x.zLow)
 
 
 def getListParameters(layersList, nbCells: int):
