@@ -249,7 +249,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         for i in range(n_sens_nonbound):
             sum_rmse_square = 0
             # attention : résultat au carré
-            rmse_sens_square = (
+            rmse_sens_square = np.sum(
                 temp_sens_simu_list[i] - temp_sens_obs_arr)**2/n_t
             sum_rmse_square += rmse_sens_square
             # les n_sens_nonbound première valeurs seront les RMSE de chq capteur
