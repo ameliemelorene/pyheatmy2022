@@ -300,6 +300,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_cells: int,
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
         verbose=True,
+        sigma_temp = Prior
     ):
         if isinstance(quantile, Number):
             quantile = [quantile]
@@ -347,14 +348,16 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
             init_param = priors.sample_params()
+            init_sigma_temp = sigma_temp.sample()
             self.compute_solve_transi(init_param, nb_cells, verbose=False)
 
             self._states.append(
                 State(
                     params=init_param,
                     energy=compute_energy(
-                        self.temps_solve[ind_ref, :], sigma_obs=init_param.sigma_temp),
+                        self.temps_solve[ind_ref, :], sigma_obs=init_sigma_temp),
                     ratio_accept=1,
+                    sigma_temp  = init_sigma_temp
                 )
             )
 
@@ -366,17 +369,19 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
+            current_sigma_temp = sigma_temp.perturb(self._states[-1].sigma_temp)
             self.compute_solve_transi(params, nb_cells, verbose=False)
             energy = compute_energy(
-                self.temps_solve[ind_ref, :], sigma_obs=params.sigma_temp)
+                self.temps_solve[ind_ref, :], sigma_obs = current_sigma_temp)
             ratio_accept = compute_acceptance(
-                energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
+                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, priors)
             if random() < ratio_accept:
                 self._states.append(
                     State(
                         params=params,
                         energy=energy,
                         ratio_accept=ratio_accept,
+                        sigma_temp = current_sigma_temp
                     )
                 )
                 _temps[_] = self.temps_solve
@@ -455,7 +460,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
     @compute_mcmc.needed
     def get_all_sigma(self):
-        return [s.params.sigma_temp for s in self._states]
+        return [s.sigma_temp for s in self._states]
 
     all_sigma = property(get_all_sigma)
 
