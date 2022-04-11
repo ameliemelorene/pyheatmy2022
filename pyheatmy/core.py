@@ -228,7 +228,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     def get_RMSE(self):
         id_sensor_list = self.get_id_sensors()
         # on ne compte pas le capteur de forçage en profondeur
-        n_sens_nonbound = len(id_sensor_list)-1
+        n_sens_nonbound = len(id_sensor_list)
         # nombre de pas de temps tous supposés égaux
         n_t = len(self._T_measures)
 
