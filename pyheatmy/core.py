@@ -241,7 +241,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         for i in range(n_sens_nonbound):
             temp_series = []
             for j in range(n_t):
-                temp_series.append(self._T_measures[j][1][i])
+                temp_series.append(self._T_measures[j][i])
             temp_sens_obs_list.append(temp_series)
         temp_sens_obs_arr = np.array(temp_sens_obs_list)
 
