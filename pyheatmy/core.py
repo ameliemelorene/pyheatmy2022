@@ -221,6 +221,46 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                     self._layersList, nb_cells, verbose)
 
     @ compute_solve_transi.needed
+    def get_id_sensors(self):
+        return self._id_sensors
+
+    @ compute_solve_transi.needed
+    def get_RMSE(self):
+        id_sensor_list = self.get_id_sensors()
+        # on ne compte pas le capteur de forçage en profondeur
+        n_sens_nonbound = len(id_sensor_list)-1
+        # nombre de pas de temps tous supposés égaux
+        n_t = len(self._T_measures)
+
+        # récupération des données de simulation
+        temp_sens_simu_list = [self.temps_solve[id, :]
+                               for id in id_sensor_list]  # une liste d'array
+
+        # obligé de faire deux boucles pour formater correctement data pour calcul
+        temp_sens_obs_list = []
+        for i in range(n_sens_nonbound):
+            temp_series = []
+            for j in range(n_t):
+                temp_series.append(self._T_measures[j][1][i])
+            temp_sens_obs_list.append(temp_series)
+        temp_sens_obs_arr = np.array(temp_sens_obs_list)
+
+        list_RMSE_square = []  # liste des résultats RMSE intermédiaire pour la boucle
+        for i in range(n_sens_nonbound):
+            sum_rmse_square = 0
+            # attention : résultat au carré
+            rmse_sens_square = (
+                temp_sens_simu_list[i] - temp_sens_obs_arr)**2/n_t
+            sum_rmse_square += rmse_sens_square
+            # les n_sens_nonbound première valeurs seront les RMSE de chq capteur
+            list_RMSE_square.append(np.sqrt(rmse_sens_square))
+        # la dernière valeur est le RMSE global
+        list_RMSE_square.append(sum_rmse_square/n_sens_nonbound)
+        arr_rmse = np.sqrt(np.array(list_RMSE_square))
+
+        return arr_rmse  # array avec les résultats d'analyse RMSE
+
+    @ compute_solve_transi.needed
     def get_depths_solve(self):
         return self._z_solve
 
