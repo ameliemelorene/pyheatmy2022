@@ -2,15 +2,14 @@ import numpy as np
 from .params import Param
 
 
-class Layer(object):
-    def __init__(self, name: str, zHigh: float, zLow: float, moinslog10K: float, n: float, lambda_s: float, rhos_cs: float):
+class Layer:
+    def __init__(self, name: str, zLow: float, moinslog10K: float, n: float, lambda_s: float, rhos_cs: float):
         self.name = name
-        self.zHigh = zHigh
         self.zLow = zLow
         self.params = Param(moinslog10K, n, lambda_s, rhos_cs)
 
     def __repr__(self) -> str:
-        return self.name + f" : {self.zHigh} m - {self.zLow} m. " + self.params.__repr__()
+        return self.name + f" : ends at {self.zLow} m. " + self.params.__repr__()
 
 
 def layersListCreator(layersListInput):
