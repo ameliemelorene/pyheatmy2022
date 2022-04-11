@@ -44,9 +44,9 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         self._H_res = None#le tableau contenant les charges à tout temps et à toute profondeur (lignes : charges) (colonnes : temps)
         self._flows = None#le tableau contenant le débit spécifique à tout temps et à toute profondeur (lignes : débit) (colonnes : temps)
 
-        self._states = None# liste contenant des objets de classe état et de longueur le nombre d'itérations de la MCMC, vérifier cas de l'initialisation de la MCMC
-        self._quantiles_temps = None
-        self._quantiles_flows = None
+        self._states = None# liste contenant des objets de classe état et de longueur le nombre d'états acceptés par la MCMC (<=nb_iter), passe à un moment par une longueur de 1000 pendant l'initialisation de MCMC
+        self._quantiles_temps = None#dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de températures associées au quantile, de longueur les temps de mesure 
+        self._quantiles_flows = None#dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de débits spécifiques associés au quantile, de longueur les temps de mesure
 
     @classmethod
     def from_dict(cls, col_dict):
@@ -233,7 +233,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
         self._states = list()
 
-        nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size#nombre de profondeurs (=nb.cells)
+        nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size#nombre de profondeurs (=nb.cells)#pas sur de comprendre l'intérêt
         _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de températures des différentes profondeurs en fonction du temps à chaque étape de MCMC
         _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de débits spécifiques des différentes profondeurs en fonction du temps à chaque étape de MCMC
 
@@ -279,90 +279,93 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
                 self._states[-1].ratio_accept = ratio_accept
                 _temps[_] = _temps[_ - 1]
                 _flows[_] = _flows[_ - 1]
-                #si refusé, on rajoute l'état précédent
-        self.compute_solve_transi.reset()
+                #si refusé, on recopie l'état précédent, en changeant la probabilité d'acceptation. On conserve les valeurs de températures et débits spécifiques précédents
+        self.compute_solve_transi.reset()#restaure les valeurs par défaut de compute_solve_transi
 
         if verbose:
             print("Mcmc Done.\n Start quantiles computation")
 
+#création des deux dictionnaires de quantile
         self._quantiles_temps = {
             quant: res
             for quant, res in zip(quantile, np.quantile(_temps, quantile, axis=0))
-        }
+        }#axis=0 fait calculer en 'moyennant' sur les étapes de la MCMC
         self._quantiles_flows = {
             quant: res
             for quant, res in zip(quantile, np.quantile(_flows, quantile, axis=0))
-        }
+        }#axis=0 fait calculer en 'moyennant' sur les étapes de la MCMC
         if verbose:
             print("Quantiles Done.")
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_depths_mcmc(self):
-        return self._times
+        return self._z_solve#avant il y avait écrit return self._times, corrigé en self.
 
     depths_mcmc = property(get_depths_mcmc)
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_times_mcmc(self):
         return self._times
 
     times_mcmc = property(get_times_mcmc)
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def sample_param(self):
-        return choice([s.params for s in self._states])
+        return choice([s.params for s in self._states])#retourne aléatoirement un des couples de paramètres parlesquels est passé la MCMC
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_best_param(self):
         """return the params that minimize the energy"""
-        return min(self._states, key=attrgetter("energy")).params
+        return min(self._states, key=attrgetter("energy")).params#retourne le couple de paramètres minimisant l'énergie par lequels est passé la MCMC
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_params(self):
-        return [s.params for s in self._states]
+        return [s.params for s in self._states]#retourne tous les couples de paramètres par lesquels est passé la MCMC
 
     all_params = property(get_all_params)
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_moinslog10K(self):
-        return [s.params.moinslog10K for s in self._states]
+        return [s.params.moinslog10K for s in self._states]#retourne toutes les valeurs de moinslog10K (K : perméabilité) par lesquels est passé la MCMC
 
     all_moinslog10K = property(get_all_moinslog10K)
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_n(self):
-        return [s.params.n for s in self._states]
+        return [s.params.n for s in self._states]#retourne toutes les valeurs de n (n : porosité) par lesquels est passé la MCMC
 
     all_n = property(get_all_n)
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_lambda_s(self):
-        return [s.params.lambda_s for s in self._states]
+        return [s.params.lambda_s for s in self._states]#retourne toutes les valeurs de lambda_s (lambda_s : conductivité thermique du solide) par lesquels est passé la MCMC
 
     all_lambda_s = property(get_all_lambda_s)
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_rhos_cs(self):
-        return [s.params.rhos_cs for s in self._states]
+        return [s.params.rhos_cs for s in self._states]#retourne toutes les valeurs de rho_cs (rho_cs : produite de la densité par la capacité calorifique spécifique du solide) par lesquels est passé la MCMC
 
     all_rhos_cs = property(get_all_rhos_cs)
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_energy(self):
-        return [s.energy for s in self._states]
+        return [s.energy for s in self._states]#retourne toutes les valeurs des énergies par lesquels est passé la MCMC
 
     all_energy = property(get_all_energy)
 
     @compute_mcmc.needed
-    def get_all_acceptance_ratio(self):
+    def get_all_acceptance_ratio(self):#retourne toutes les valeurs de probabilité d'acceptation par lesquels est passé la MCMC
         return [s.ratio_accept for s in self._states]
 
     all_acceptance_ratio = property(get_all_acceptance_ratio)
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_temps_quantile(self, quantile):
         return self._quantiles_temps[quantile]
+        #retourne les valeurs des températures en fonction du temps selon le quantile demandé
 
-    @compute_mcmc.needed
+    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_flows_quantile(self, quantile):
         return self._quantiles_flows[quantile]
+        #retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demandé
