@@ -346,9 +346,9 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
 
-        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, priors):
+        def compute_acceptance(actual_energy: float, prev_energy: float):
             # min useless
-            return min(1, (prev_sigma*priors.prior_list[-1].density(actual_sigma)/(actual_sigma*priors[-1].density(prev_sigma)))*np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
+            return min(1, np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
 
         if verbose:
             print(
@@ -375,7 +375,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                 State(
                     params=init_param,
                     energy=compute_energy(
-                        self.temps_solve[ind_ref, :], sigma_obs=init_param.sigma_temp),
+                        self.temps_solve[ind_ref, :]),
                     ratio_accept=1,
                 )
             )
@@ -390,9 +390,9 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             params = priors.perturb(self._states[-1].params)
             self.compute_solve_transi(params, nb_cells, verbose=False)
             energy = compute_energy(
-                self.temps_solve[ind_ref, :], sigma_obs=params.sigma_temp)
+                self.temps_solve[ind_ref, :])
             ratio_accept = compute_acceptance(
-                energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
+                energy, self._states[-1].energy)
             if random() < ratio_accept:
                 self._states.append(
                     State(
