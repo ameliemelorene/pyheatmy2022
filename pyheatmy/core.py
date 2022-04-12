@@ -87,7 +87,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                            for j in range(len(self._times) - 1)])
         isdtconstant = np.all(all_dt == all_dt[0])
 
-        H_init = np.linspace(self._dH[0], 0, nb_cells)
+        H_init = self._dH[0] - self._dH[0] * self._z_solve / self._real_z[-1]
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH
 
@@ -145,7 +145,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                            for j in range(len(self._times) - 1)])
         isdtconstant = np.all(all_dt == all_dt[0])
 
-        H_init = np.linspace(self._dH[0], 0, nb_cells)
+        H_init = self._dH[0] - self._dH[0] * self._z_solve / self._real_z[-1]
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH
 
