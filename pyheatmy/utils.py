@@ -196,10 +196,10 @@ def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, al
 
             # Defining c
             c = zeros(n_cell, float32)
-            c[0] = (8*KsurSs / (2*dz**2)) * \
-                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
-            c[-1] = (8*KsurSs / (2*dz**2)) * \
-                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+            c[0] = (8*KsurSs / (3*dz**2)) * \
+                ((1-alpha)*H_riv[j+1] + alpha*H_riv[j])
+            c[-1] = (8*KsurSs / (3*dz**2)) * \
+                ((1-alpha)*H_aq[j+1] + alpha*H_aq[j])
 
             B_fois_H_plus_c = tri_product(
                 lower_diagonal_B, diagonal_B, upper_diagonal_B, H_res[:, j]) + c
@@ -223,10 +223,10 @@ def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, al
 
             # Defining c
             c = zeros(n_cell, float32)
-            c[0] = (8*KsurSs / (2*dz**2)) * \
-                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
-            c[-1] = (8*KsurSs / (2*dz**2)) * \
-                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+            c[0] = (8*KsurSs / (3*dz**2)) * \
+                ((1-alpha)*H_riv[j+1] + alpha*H_riv[j])
+            c[-1] = (8*KsurSs / (3*dz**2)) * \
+                ((1-alpha)*H_aq[j+1] + alpha*H_aq[j])
 
             B_fois_H_plus_c = tri_product(
                 lower_diagonal, diagonal, upper_diagonal, H_res[:, j]) + c
@@ -439,10 +439,10 @@ def compute_H_stratified(moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_
 
             # Defining c
             c = zeros(n_cell, float32)
-            c[0] = (8*KsurSs_list[0] / (2*dz**2)) * \
-                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
-            c[-1] = (8*KsurSs_list[n_cell - 1] / (2*dz**2)) * \
-                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+            c[0] = (8*KsurSs_list[0] / (3*dz**2)) * \
+                ((1-alpha)*H_riv[j+1] + alpha*H_riv[j])
+            c[-1] = (8*KsurSs_list[n_cell - 1] / (3*dz**2)) * \
+                ((1-alpha)*H_aq[j+1] + alpha*H_aq[j])
 
             B_fois_H_plus_c = tri_product(
                 lower_diagonal_B, diagonal_B, upper_diagonal_B, H_res[:, j]) + c
@@ -466,10 +466,10 @@ def compute_H_stratified(moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_
 
             # Defining c
             c = zeros(n_cell, float32)
-            c[0] = (8*KsurSs_list[0] / (2*dz**2)) * \
-                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
-            c[-1] = (8*KsurSs_list[n_cell - 1] / (2*dz**2)) * \
-                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+            c[0] = (8*KsurSs_list[0] / (3*dz**2)) * \
+                ((1-alpha)*H_riv[j+1] + alpha*H_riv[j])
+            c[-1] = (8*KsurSs_list[n_cell - 1] / (3*dz**2)) * \
+                ((1-alpha)*H_aq[j+1] + alpha*H_aq[j])
 
             B_fois_H_plus_c = tri_product(
                 lower_diagonal, diagonal, upper_diagonal, H_res[:, j]) + c
