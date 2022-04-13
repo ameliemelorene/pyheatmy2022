@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import trange
 from scipy.interpolate import lagrange
 
-from .params import  Param, ParamsPriors, Prior, PARAM_LIST
+from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State, StateOld
 from .checker import checker
 
@@ -451,7 +451,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_cells: int,#le nombre de cellules de la colonne
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),#les quantiles pour l'affichage de stats sur les valeurs de température
         verbose=True,#affiche texte explicatifs ou non
-        sigma_temp_prior = Prior
+        sigma_temp_prior: Prior = Prior((0.01, np.inf), 2, lambda x : 1/x)
     ):
         if isinstance(quantile, Number):#si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
             quantile = [quantile]
@@ -576,58 +576,63 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def sample_param(self):
-        return choice([s.params for s in self._states])#retourne aléatoirement un des couples de paramètres parlesquels est passé la MCMC
+        return choice([[layer.params for layer in state.layers] for state in self._states])#retourne aléatoirement un des couples de paramètres parlesquels est passé la MCMC
 
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_best_param(self):
         """return the params that minimize the energy"""
-        return min(self._states, key=attrgetter("energy")).params#retourne le couple de paramètres minimisant l'énergie par lequels est passé la MCMC
+        return [layer.param for layer in min(self._states, key=attrgetter("energy")).layers]#retourne le couple de paramètres minimisant l'énergie par lequels est passé la MCMC
 
+    @ compute_mcmc.needed
+    def get_best_layers(self):
+        """return the params that minimize the energy"""
+        return min(self._states, key=attrgetter("energy")).layers
+    
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_params(self):
-        return [s.params for s in self._states]#retourne tous les couples de paramètres par lesquels est passé la MCMC
+        return [[layer.params for layer in state.layers] for state in self._states]#retourne tous les couples de paramètres par lesquels est passé la MCMC
 
     all_params = property(get_all_params)
 
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_moinslog10K(self):
-        return [s.params.moinslog10K for s in self._states]#retourne toutes les valeurs de moinslog10K (K : perméabilité) par lesquels est passé la MCMC
+        return [[layer.params.K for layer in state.layers] for state in self._states]#retourne toutes les valeurs de moinslog10K (K : perméabilité) par lesquels est passé la MCMC
 
     all_moinslog10K = property(get_all_moinslog10K)
 
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_n(self):
-        return [s.params.n for s in self._states]#retourne toutes les valeurs de n (n : porosité) par lesquels est passé la MCMC
+        return [[layer.params.n for layer in state.layers] for state in self._states]#retourne toutes les valeurs de n (n : porosité) par lesquels est passé la MCMC
 
     all_n = property(get_all_n)
 
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_lambda_s(self):
-        return [s.params.lambda_s for s in self._states]#retourne toutes les valeurs de lambda_s (lambda_s : conductivité thermique du solide) par lesquels est passé la MCMC
+        return [[layer.params.lambda_s for layer in state.layers] for state in self._states]#retourne toutes les valeurs de lambda_s (lambda_s : conductivité thermique du solide) par lesquels est passé la MCMC
 
     all_lambda_s = property(get_all_lambda_s)
 
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_rhos_cs(self):
-        return [s.params.rhos_cs for s in self._states]#retourne toutes les valeurs de rho_cs (rho_cs : produite de la densité par la capacité calorifique spécifique du solide) par lesquels est passé la MCMC
+        return [[layer.params.rhos_cs for layer in state.layers] for state in self._states]#retourne toutes les valeurs de rho_cs (rho_cs : produite de la densité par la capacité calorifique spécifique du solide) par lesquels est passé la MCMC
 
     all_rhos_cs = property(get_all_rhos_cs) 
        
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_all_sigma(self):
-        return [s.params.sigma_temp for s in self._states]
+        return [state.sigma_temp for state in self._states]
 
     all_sigma = property(get_all_sigma)
 
     @ compute_mcmc.needed
     def get_all_energy(self):
-        return self._initial_energies + [s.energy for s in self._states]
+        return self._initial_energies + [state.energy for state in self._states]
 
     all_energy = property(get_all_energy)
 
     @compute_mcmc.needed
     def get_all_acceptance_ratio(self):#retourne toutes les valeurs de probabilité d'acceptation par lesquels est passé la MCMC
-        return [s.ratio_accept for s in self._states]
+        return [state.ratio_accept for state in self._states]
 
     all_acceptance_ratio = property(get_all_acceptance_ratio)
 
