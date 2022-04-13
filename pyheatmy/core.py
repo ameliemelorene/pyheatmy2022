@@ -1,3 +1,4 @@
+from multiprocessing.sharedctypes import Value
 from typing import Sequence, Union
 from random import random, choice
 from operator import attrgetter
@@ -8,43 +9,56 @@ import numpy as np
 from tqdm import trange
 from scipy.interpolate import lagrange
 
-from .params import Param, ParamsPriors, Prior
+from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State
 from .checker import checker
-from .utils import C_W, RHO_W, LAMBDA_W, PARAM_LIST, compute_H, compute_T
+
+from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T, compute_H_stratified, compute_T_stratified
+from .layers import Layer, getListParameters, sortLayersList
 
 
-class Column:#colonne de sédiments verticale entre le lit de la rivière et l'aquifère
+class Column:  # colonne de sédiments verticale entre le lit de la rivière et l'aquifère
     def __init__(
         self,
-        river_bed: float,#profondeur de la colonne en mètres
-        depth_sensors: Sequence[float],#profondeur des capteurs de températures en mètres
-        offset: float,#correspond au décalage du capteur de température par rapport au lit de la rivière
-        dH_measures: list,#liste contenant un tuple avec la date, la charge et la température au sommet de la colonne
-        T_measures: list,#liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
-        sigma_meas_P: float,#écart type de l'incertitude sur les valeurs de pression capteur
-        sigma_meas_T: float,#écart type de l'incertitude sur les valeurs de température capteur
+        river_bed: float,  # profondeur de la colonne en mètres
+        # profondeur des capteurs de températures en mètres
+        depth_sensors: Sequence[float],
+        offset: float,  # correspond au décalage du capteur de température par rapport au lit de la rivière
+        # liste contenant un tuple avec la date, la charge et la température au sommet de la colonne
+        dH_measures: list,
+        T_measures: list,  # liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
+        sigma_meas_P: float,  # écart type de l'incertitude sur les valeurs de pression capteur
+        sigma_meas_T: float,  # écart type de l'incertitude sur les valeurs de température capteur
     ):
         # ! Pour l'instant on suppose que les temps matchent
-        self._times = [t for t, _ in dH_measures]#récupère la liste des temps
-        self._dH = np.array([d for _, (d, _) in dH_measures])#récupère le tableau des charges au niveau de la riviière (=sommet de la colonne) (au cours du temps)
-        self._T_riv = np.array([t for _, (_, t) in dH_measures])#récupère le tableau de température de la rivière (=sommet de la colonne) (au cours du temps)
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])#récupère le tableau de température de l'aquifère (au cours du temps)
-        self._T_measures = np.array([t[:-1] for _, t in T_measures])#récupère le tableau de températures des capteurs (au cours du temps)
+        self._times = [t for t, _ in dH_measures]
+        # récupère la liste des charges de la riviière (au cours du temps)
+        self._dH = np.array([d for _, (d, _) in dH_measures])
+        # récupère la liste de température de la rivière (au cours du temps)
+        self._T_riv = np.array([t for _, (_, t) in dH_measures])
+        # récupère la liste de température de l'aquifère (au cours du temps)
+        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])
+        # récupère la liste de températures des capteurs (au cours du temps)
+        self._T_measures = np.array([t[:-1] for _, t in T_measures])
 
-        self._real_z = np.array([0] + depth_sensors) + offset #décale d'un offset les positions des capteurs de température (aussi riviere)
-        self._real_z[0] -= offset #enlève l'offset sur la mesure de température rivière car cette mesure est prise dans le capteur pression
-      
+        # décale d'un offset les positions des capteurs de température (aussi riviere)
+        self._real_z = np.array([0] + depth_sensors) + offset
+        # enlève l'offset sur la mesure de température rivière car cette mesure est prise dans le capteur pression
+        self._real_z[0] -= offset
+
         self.depth_sensors = depth_sensors
         self.offset = offset
 
-        self._param = None#les paramètres moinslog10K,n,lambda_s,rhos_cs
+        self._layersList = None
+
         self._z_solve = None#le tableau contenant la profondeur du milieu des cellules
+        self._id_sensors = None
         self._temps = None#le tableau contenant les températures à tout temps et à toute profondeur (lignes : températures) (colonnes : temps)
         self._H_res = None#le tableau contenant les charges à tout temps et à toute profondeur (lignes : charges) (colonnes : temps)
         self._flows = None#le tableau contenant le débit spécifique à tout temps et à toute profondeur (lignes : débit) (colonnes : temps)
 
         self._states = None# liste contenant des objets de classe état et de longueur le nombre d'états acceptés par la MCMC (<=nb_iter), passe à un moment par une longueur de 1000 pendant l'initialisation de MCMC
+        self._initial_energies = None
         self._quantiles_temps = None#dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de températures associées au quantile, de longueur les temps de mesure 
         self._quantiles_flows = None#dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de débits spécifiques associés au quantile, de longueur les temps de mesure
 
@@ -52,46 +66,54 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     def from_dict(cls, col_dict):
         return cls(**col_dict)
 
-    @checker
-    def compute_solve_transi(self, param: tuple, nb_cells: int, verbose=True):#résout les calculs de température au cours du temps en régime transitoire
-        """s'applique à la colonne, paramètres contient moinslog10K,n,lambda_s,rhos_cs,nb_cells est le nombre de cellules pour la discrétisation en profondeur,verbose affiche les textes explicatifs"""
-        if not isinstance(param, Param):#si param n'est pas de type Param
-            param = Param(*param)#crée param de classe Param à partir des valeurs données dans param en entrée
-        self._param = param
+    def _check_layers(self, layersList):#note Amélie : reprendre
+        self._layersList = sortLayersList(layersList)
 
-        if verbose:
-            print("--- Compute Solve Transi ---", self._param, sep="\n")
+        if len(self._layersList) == 0:
+            raise ValueError("Your list of layers is empty.")
 
-        dz = self._real_z[-1] / nb_cells  #profondeur d'une cellule
+        if self._layersList[-1].zLow != self._real_z[-1]:
+            raise ValueError(
+                "Last layer does not match the end of the column.")
 
+    def _compute_solve_transi_one_layer(self, layer, nb_cells, verbose=True):
+        dz = self._real_z[-1] / nb_cells#profondeur d'une cellule
         self._z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
 
-        K = 10 ** -param.moinslog10K
-        heigth = abs(self._real_z[-1] - self._real_z[0])
-        Ss = param.n / heigth # l'emmagasinement spécifique = porosité sur la hauteur
+        self._id_sensors = [np.argmin(np.abs(z - self._z_solve))
+                            for z in self._real_z[1:-1]]
 
         all_dt = np.array([(self._times[j+1] - self._times[j]).total_seconds()
                            for j in range(len(self._times) - 1)])#le tableau des pas de temps (dépend des données d'entrée)
-
         isdtconstant = np.all(all_dt == all_dt[0])
 
-        H_init = np.linspace(self._dH[0], 0, nb_cells)#initialise (t=0) les charges des cellules en prenant 0 comme référence au niveau de l'aquifère
+        H_init = self._dH[0] - self._dH[0] * self._z_solve / self._real_z[-1]
         H_aq = np.zeros(len(self._times))#fixe toutes les charges de l'aquifère à 0 (à tout temps)
         H_riv = self._dH#self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        H_res = compute_H(K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq)#calcule toutes les charges à tout temps et à toute profondeur
-
-        # temps[0] = np.linspace(self._T_riv[0], self._T_aq[0], nb_cells)
         lagr = lagrange(
-            self._real_z, [self._T_riv[0], *self._T_measures[0], self._T_aq[0]]
+            self._real_z, [self._T_riv[0], *
+                           self._T_measures[0], self._T_aq[0]]
         )#crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
 
         T_init = lagr(self._z_solve)#crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
+        moinslog10K, n, lambda_s, rhos_cs = layer.params
+
+        if verbose:
+            print("--- Compute Solve Transi ---",
+                  f"One layer : moinslog10K = {moinslog10K}, n = {n}, lambda_s = {lambda_s}, rhos_cs = {rhos_cs}", sep="\n")
+
+        heigth = abs(self._real_z[-1] - self._real_z[0])
+        Ss = n / heigth # l'emmagasinement spécifique = porosité sur la hauteur
+
+        H_res = compute_H(moinslog10K, Ss, all_dt,
+                          isdtconstant, dz, H_init, H_riv, H_aq)#calcule toutes les charges à tout temps et à toute profondeur
+        
         T_res = compute_T(
-            param.moinslog10K, param.n, param.lambda_s, param.rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq
+            moinslog10K, n, lambda_s, rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq
         )#calcule toutes les températures à tout temps et à toute profondeur
 
         self._temps = T_res
@@ -106,12 +128,121 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
 
         nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 2, :])/(3*dz)
 
+        K = 10 ** - moinslog10K
         self._flows = -K * nablaH#calcul du débit spécifique
 
         if verbose:
             print("Done.")
 
-    @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
+    def _compute_solve_transi_multiple_layers(self, layersList, nb_cells, verbose):
+        dz = self._real_z[-1] / nb_cells#profondeur d'une cellule
+        self._z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
+
+        self._id_sensors = [np.argmin(np.abs(z - self._z_solve))
+                            for z in self._real_z[1:-1]]
+
+        all_dt = np.array([(self._times[j+1] - self._times[j]).total_seconds()
+                           for j in range(len(self._times) - 1)])#le tableau des pas de temps (dépend des données d'entrée)
+        isdtconstant = np.all(all_dt == all_dt[0])
+
+        H_init = self._dH[0] - self._dH[0] * self._z_solve / self._real_z[-1]
+        H_aq = np.zeros(len(self._times))#fixe toutes les charges de l'aquifère à 0 (à tout temps)
+        H_riv = self._dH#self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
+
+        lagr = lagrange(
+            self._real_z, [self._T_riv[0], *
+                           self._T_measures[0], self._T_aq[0]]
+        )#crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
+
+        T_init = lagr(self._z_solve)#crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
+        T_riv = self._T_riv
+        T_aq = self._T_aq
+
+        moinslog10K_list, n_list, lambda_s_list, rhos_cs_list = getListParameters(
+            layersList, nb_cells)
+
+        heigth = abs(self._real_z[-1] - self._real_z[0])
+        Ss_list = n_list / heigth# l'emmagasinement spécifique = porosité sur la hauteur
+
+        if verbose:
+            print("--- Compute Solve Transi ---")
+            for layer in layersList:
+                print(layer)
+
+        H_res = compute_H_stratified(
+            moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_init, H_riv, H_aq)
+
+        T_res = compute_T_stratified(moinslog10K_list, n_list, lambda_s_list,
+                                     rhos_cs_list, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq)
+
+        self._temps = T_res
+        self._H_res = H_res#stocke les résultats
+
+        nablaH = np.zeros((nb_cells, len(self._times)), np.float32)#création d'un tableau du gradient de la charge selon la profondeur, calculé à tout temps
+
+        nablaH[0, :] = 2*(H_res[1, :] - H_riv)/(3*dz)
+
+        for i in range(1, nb_cells - 1):
+            nablaH[i, :] = (H_res[i+1, :] - H_res[i-1, :])/(2*dz)
+
+        nablaH[nb_cells - 1, :] = 2*(H_aq - H_res[nb_cells - 2, :])/(3*dz)
+
+        K_list = 10 ** - moinslog10K_list
+
+        flows = np.zeros((nb_cells, len(self._times)), np.float32)
+
+        for i in range(nb_cells):
+            flows[i, :] = - K_list[i]*nablaH[i, :]
+
+        self._flows = flows#calcul du débit spécifique
+
+        if verbose:
+            print("Done.")
+
+    @checker
+    def compute_solve_transi(self, layersList: Union[tuple, Sequence[Layer]], nb_cells: int, verbose=True):
+
+        # List of layers or tuple ?
+        if isinstance(layersList, tuple):
+            layer = [Layer("Layer 1", self._real_z[-1],
+                           layersList[0], layersList[1], layersList[2], layersList[3])]
+            self.compute_solve_transi(layer, nb_cells, verbose)
+
+        else:
+            # Checking the layers are well defined
+            self._check_layers(layersList)
+
+            if len(self._layersList) == 1:
+                self._compute_solve_transi_one_layer(
+                    self._layersList[0], nb_cells, verbose)
+
+            else:
+                self._compute_solve_transi_multiple_layers(
+                    self._layersList, nb_cells, verbose)
+
+    @ compute_solve_transi.needed
+    def get_id_sensors(self):
+        return self._id_sensors
+
+    @ compute_solve_transi.needed
+    def get_RMSE(self):
+
+        # Number of sensors (except boundary conditions : river and aquifer)
+        nb_sensors = len(self._T_measures[0])
+
+        # Number of times for which we have measures
+        nb_times = len(self._T_measures)
+
+        # Array of RMSE for each sensor
+        list_RMSE = np.array([np.sqrt(np.sum((self.temps_solve[id, :] - temps_obs)**2) / nb_times)
+                             for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
+
+        # Total RMSE
+        total_RMSE = np.sqrt(np.sum(list_RMSE**2) / nb_sensors)
+
+        return np.append(list_RMSE, total_RMSE)
+
+   @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_depths_solve(self):
         return self._z_solve
 
@@ -142,19 +273,22 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
             * self._flows
             * self.temps_solve
         )
-
     advec_flows_solve = property(get_advec_flows_solve)
 #récupération des flux advectifs = masse volumnique*capacité calorifique*débit spécifique*température
 
-    @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
+    @ compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_conduc_flows_solve(self):
-        lambda_m = (
-            self._param.n * (LAMBDA_W) ** 0.5
-            + (1.0 - self._param.n) * (self._param.lambda_s) ** 0.5
-        ) ** 2 #conductivité thermique du milieu poreux équivalent
-
         dz = self._z_solve[1] - self._z_solve[0]#pas en profondeur
         nb_cells = len(self._z_solve)
+
+        _, n_list, lambda_s_list, _ = getListParameters(
+            self._layersList, nb_cells)
+
+        lambda_m_list = (
+            n_list * (LAMBDA_W) ** 0.5
+            + (1.0 - n_list) * (lambda_s_list) ** 0.5
+        ) ** 2#conductivité thermique du milieu poreux équivalent
+
         #création du gradient de température
         nablaT = np.zeros((nb_cells, len(self._times)), np.float32)
 
@@ -166,12 +300,17 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         nablaT[nb_cells - 1, :] = 2 * \
             (self._T_aq - self._temps[nb_cells - 2, :])/(3*dz)
 
-        return lambda_m * nablaT
+        conduc_flows = np.zeros((nb_cells, len(self._times)), np.float32)
+
+        for i in range(nb_cells):
+            conduc_flows[i, :] = lambda_m_list[i] * nablaT[i, :]
+
+        return conduc_flows
 
     conduc_flows_solve = property(get_conduc_flows_solve)
 #récupération des flux conductifs = conductivité*gradient(T)
 
-    @compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
+    @ compute_solve_transi.needed#erreur si pas déjà éxécuté compute_solve_transi, sinon l'attribut pas encore affecté à une valeur
     def get_flows_solve(self, z=None):
         if z is None:
             return self._flows#par défaut, retourne le tableau des débits spécifiques
@@ -181,22 +320,22 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     flows_solve = property(get_flows_solve)
 #récupération des débits spécifiques au cours du temps à toutes les profondeurs (par défaut) ou bien à une profondeur donnée
 
-    @checker
+    @ checker
     def compute_mcmc(
-        self,#la colonne
-        nb_iter: int, 
-        priors: dict, #dictionnaire défini dans params.py, contentant écart type et range si on considère une distribution uniforme, contenant aussi fonction de répartition sinon
-        nb_cells: int, #le nombre de cellules de la colonne
-        quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95), #les quantiles pour l'affichage de stats sur les valeurs de température
-        verbose=True, #affiche texte explicatifs ou non
+       self,#la colonne
+       nb_iter: int, 
+       priors: dict, #dictionnaire défini dans params.py, contentant écart type et range si on considère une distribution uniforme, contenant aussi fonction de répartition sinon
+       nb_cells: int, #le nombre de cellules de la colonne
+       quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95), #les quantiles pour l'affichage de stats sur les valeurs de température
+       verbose=True, #affiche texte explicatifs ou non
     ):
-        if isinstance(quantile, Number):#si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
-            quantile = [quantile]
+       if isinstance(quantile, Number):#si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
+           quantile = [quantile]
 
         priors = ParamsPriors(
-            [Prior((a, b), c) for (a, b), c in (priors[lbl]
-                                                for lbl in PARAM_LIST)]
-        );#va rechanger avec les modifs de valentin, je recommenterai après avoir rajouté les modifs de valentin à mon main
+            [Prior(*args) for args in (priors[lbl]
+                                       for lbl in PARAM_LIST)]  # usefull for optionnal arguments
+        )
 
         ind_ref = [
             np.argmin(
@@ -232,7 +371,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
             )
 
         self._states = list()
-
+        
         nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size#nombre de profondeurs (=nb.cells)#pas sur de comprendre l'intérêt
         _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de températures des différentes profondeurs en fonction du temps à chaque étape de MCMC
         _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de débits spécifiques des différentes profondeurs en fonction du temps à chaque étape de MCMC
@@ -251,6 +390,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
             )
         #self._states de longueur 1000 à la fin de la boucle for
 
+        self._initial_energies = [state.energy for state in self._states]
         self._states = [min(self._states, key=attrgetter("energy"))]#self._states de longueur 1 qu'on prend en état initial, celui qui minimise l'énergie (état stationnaire) de la simulation
 
         _temps[0] = self.temps_solve
@@ -285,7 +425,7 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         if verbose:
             print("Mcmc Done.\n Start quantiles computation")
 
-#création des deux dictionnaires de quantile
+      #création des deux dictionnaires de quantile
         self._quantiles_temps = {
             quant: res
             for quant, res in zip(quantile, np.quantile(_temps, quantile, axis=0))
@@ -297,13 +437,13 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
         if verbose:
             print("Quantiles Done.")
 
-    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
+    @ compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_depths_mcmc(self):
-        return self._z_solve#avant il y avait écrit return self._times, corrigé en self.
+        return self._real_z  # plus cohérent que de renvoyer le time
 
     depths_mcmc = property(get_depths_mcmc)
-
-    @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
+    
+     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_times_mcmc(self):
         return self._times
 
@@ -346,11 +486,17 @@ class Column:#colonne de sédiments verticale entre le lit de la rivière et l'a
     def get_all_rhos_cs(self):
         return [s.params.rhos_cs for s in self._states]#retourne toutes les valeurs de rho_cs (rho_cs : produite de la densité par la capacité calorifique spécifique du solide) par lesquels est passé la MCMC
 
-    all_rhos_cs = property(get_all_rhos_cs)
-
+    all_rhos_cs = property(get_all_rhos_cs) 
+       
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
+    def get_all_sigma(self):
+        return [s.params.sigma_temp for s in self._states]
+
+    all_sigma = property(get_all_sigma)
+
+    @ compute_mcmc.needed
     def get_all_energy(self):
-        return [s.energy for s in self._states]#retourne toutes les valeurs des énergies par lesquels est passé la MCMC
+        return self._initial_energies + [s.energy for s in self._states]
 
     all_energy = property(get_all_energy)
 
