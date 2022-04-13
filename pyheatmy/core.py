@@ -326,7 +326,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             return 0.5 * (norm / sigma_obs) ** 2
 
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-            return  (prev_sigma/actual_sigma)**len(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
+            return  (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
 
         if verbose:
             print(
@@ -440,7 +440,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             return 0.5 * (norm / sigma_obs) ** 2
 
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-            return (prev_sigma/actual_sigma)**len(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy) 
+            return (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy) 
 
         if verbose:
             print(

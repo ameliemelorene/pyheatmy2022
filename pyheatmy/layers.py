@@ -20,8 +20,8 @@ class LayerPriors(ParamsPriors) :
         self.name = name
         self.z_low = z_low
     
-    def perturb(self, param) : 
-        return Layer(self.name, self.z_low, *ParamsPriors.perturb(self, param))
+    def perturb(self, layer) : 
+        return Layer(self.name, self.z_low, *ParamsPriors.perturb(self, layer.params))
 
     def sample(self):
         return Layer(self.name, self.z_low, *ParamsPriors.sample(self))
