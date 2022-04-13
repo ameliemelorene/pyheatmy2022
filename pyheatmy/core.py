@@ -326,8 +326,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             return 0.5 * (norm / sigma_obs) ** 2
 
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-            # min useless
-            return min(1, (prev_sigma*sigma_distrib(actual_sigma)/(actual_sigma*sigma_distrib(prev_sigma)))*np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
+            return  (prev_sigma/actual_sigma)**len(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
 
         if verbose:
             print(
@@ -423,7 +422,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         if not isinstance(all_priors, AllPriors) :
             all_priors = AllPriors(
-                [LayerPriors(*args) for args in (layer for layer in all_priors )])
+                [LayerPriors(*args) for args in (layer for layer in all_priors)])
 
         ind_ref = [
             np.argmin(
@@ -441,8 +440,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             return 0.5 * (norm / sigma_obs) ** 2
 
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-            # min useless
-            return min(1, (prev_sigma*sigma_distrib(actual_sigma)/(actual_sigma*sigma_distrib(prev_sigma)))*np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
+            return (prev_sigma/actual_sigma)**len(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy) 
 
         if verbose:
             print(
