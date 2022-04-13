@@ -1,5 +1,5 @@
 from multiprocessing.sharedctypes import Value
-from typing import Sequence, Union
+from typing import List, Sequence, Union
 from random import random, choice
 from operator import attrgetter
 from numbers import Number
@@ -9,12 +9,12 @@ import numpy as np
 from tqdm import trange
 from scipy.interpolate import lagrange
 
-from .params import Param, ParamsPriors, Prior, PARAM_LIST
-from .state import State
+from .params import  Param, ParamsPriors, Prior, PARAM_LIST
+from .state import State, StateOld
 from .checker import checker
 
 from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T, compute_H_stratified, compute_T_stratified
-from .layers import Layer, getListParameters, sortLayersList
+from .layers import Layer, getListParameters, sortLayersList, AllPriors, LayerPriors
 
 
 class Column:  # colonne de sédiments verticale entre le lit de la rivière et l'aquifère
@@ -314,14 +314,15 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
     flows_solve = property(get_flows_solve)
 
-    @ checker
-    def compute_mcmc(
+    
+    def _compute_mcmc_deprecated(
         self,
         nb_iter: int,
         priors: dict,
         nb_cells: int,
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
         verbose=True,
+        sigma_temp_prior = Prior
     ):
         if isinstance(quantile, Number):
             quantile = [quantile]
@@ -346,9 +347,9 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
 
-        def compute_acceptance(actual_energy: float, prev_energy: float):
-            # min useless
-            return min(1, np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
+        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
+            return  (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
+
 
         if verbose:
             print(
@@ -368,15 +369,17 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
 
         for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
-            init_param = priors.sample_params()
+            init_param = priors.sample()
+            init_sigma_temp = sigma_temp_prior.sample()
             self.compute_solve_transi(init_param, nb_cells, verbose=False)
 
             self._states.append(
-                State(
+                StateOld(
                     params=init_param,
                     energy=compute_energy(
-                        self.temps_solve[ind_ref, :]),
+                        self.temps_solve[ind_ref, :], sigma_obs=init_sigma_temp),
                     ratio_accept=1,
+                    sigma_temp  = init_sigma_temp
                 )
             )
 
@@ -388,17 +391,133 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
+            current_sigma_temp = sigma_temp_prior.perturb(self._states[-1].sigma_temp)
             self.compute_solve_transi(params, nb_cells, verbose=False)
             energy = compute_energy(
-                self.temps_solve[ind_ref, :])
+                self.temps_solve[ind_ref, :], sigma_obs = current_sigma_temp)
             ratio_accept = compute_acceptance(
-                energy, self._states[-1].energy)
+                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp_prior.distrib)
             if random() < ratio_accept:
                 self._states.append(
-                    State(
+                    StateOld(
                         params=params,
                         energy=energy,
                         ratio_accept=ratio_accept,
+                        sigma_temp = current_sigma_temp
+                    )
+                )
+                _temps[_] = self.temps_solve
+                _flows[_] = self.flows_solve
+            else:
+                self._states.append(self._states[-1])
+                self._states[-1].ratio_accept = ratio_accept
+                _temps[_] = _temps[_ - 1]
+                _flows[_] = _flows[_ - 1]
+        self.compute_solve_transi.reset()
+
+        if verbose:
+            print("Mcmc Done.\n Start quantiles computation")
+
+        self._quantiles_temps = {
+            quant: res
+            for quant, res in zip(quantile, np.quantile(_temps, quantile, axis=0))
+        }
+        self._quantiles_flows = {
+            quant: res
+            for quant, res in zip(quantile, np.quantile(_flows, quantile, axis=0))
+        }
+        if verbose:
+            print("Quantiles Done.")
+
+    @checker
+    def compute_mcmc(
+        self,
+        nb_iter: int,
+        all_priors: Union[AllPriors, Sequence[ Union[LayerPriors,
+                            Sequence[Union[str, float, Sequence[ Union[Prior, dict]]]]]]],
+        nb_cells: int,
+        quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
+        verbose=True,
+        sigma_temp_prior = Prior
+    ):
+        if isinstance(quantile, Number):
+            quantile = [quantile]
+
+        if not isinstance(all_priors, AllPriors) :
+            all_priors = AllPriors(
+                [LayerPriors(*args) for args in (layer for layer in all_priors)])
+
+        ind_ref = [
+            np.argmin(
+                np.abs(
+                    z - np.linspace(self._real_z[0], self._real_z[-1], nb_cells))
+            )
+            for z in self._real_z[1:-1]
+        ]
+
+        temp_ref = self._T_measures[:, :].T
+
+        def compute_energy(temp: np.array, sigma_obs: float = 1):
+            # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
+            norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
+            return 0.5 * (norm / sigma_obs) ** 2
+
+        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
+            return (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy) 
+
+        if verbose:
+            print(
+                "--- Compute Mcmc ---",
+                "Priors :",
+                *(f"    {prior}" for prior in all_priors),
+                f"Number of cells : {nb_cells}",
+                f"Number of iterations : {nb_iter}",
+                "Launch Mcmc",
+                sep="\n",
+            )
+
+        self._states = list()
+
+        nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size
+        _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
+        _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)
+
+        for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
+            init_layers =  all_priors.sample()
+            init_sigma_temp = sigma_temp_prior.sample()
+            self.compute_solve_transi(init_layers, nb_cells, verbose=False)
+
+            self._states.append(
+                State(
+                    layers=init_layers,
+                    energy=compute_energy(
+                        self.temps_solve[ind_ref, :], sigma_obs=init_sigma_temp),
+                    ratio_accept=1,
+                    sigma_temp  = init_sigma_temp
+                )
+            )
+
+        self._initial_energies = [state.energy for state in self._states]
+        self._states = [min(self._states, key=attrgetter("energy"))]
+
+        _temps[0] = self.temps_solve
+        _flows[0] = self.flows_solve
+
+        for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
+            current_layers = all_priors.perturb(self._states[-1].layers)
+            current_sigma_temp = sigma_temp_prior.perturb(self._states[-1].sigma_temp)
+            self.compute_solve_transi(current_layers, nb_cells, verbose=False)
+            energy = compute_energy(
+                self.temps_solve[ind_ref, :], sigma_obs = current_sigma_temp)
+            ratio_accept = compute_acceptance(
+                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp_prior.density)
+            if random() < ratio_accept:
+                self._states.append(
+                    State(
+                        layers=current_layers,
+                        energy=energy,
+                        ratio_accept=ratio_accept,
+                        sigma_temp = current_sigma_temp
                     )
                 )
                 _temps[_] = self.temps_solve
@@ -477,7 +596,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
     @compute_mcmc.needed
     def get_all_sigma(self):
-        return [s.params.sigma_temp for s in self._states]
+        return [s.sigma_temp for s in self._states]
 
     all_sigma = property(get_all_sigma)
 
