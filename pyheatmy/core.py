@@ -87,7 +87,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                            for j in range(len(self._times) - 1)])
         isdtconstant = np.all(all_dt == all_dt[0])
 
-        H_init = np.linspace(self._dH[0], 0, nb_cells)
+        H_init = self._dH[0] - self._dH[0] * self._z_solve / self._real_z[-1]
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH
 
@@ -145,7 +145,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                            for j in range(len(self._times) - 1)])
         isdtconstant = np.all(all_dt == all_dt[0])
 
-        H_init = np.linspace(self._dH[0], 0, nb_cells)
+        H_init = self._dH[0] - self._dH[0] * self._z_solve / self._real_z[-1]
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH
 
@@ -219,6 +219,28 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             else:
                 self._compute_solve_transi_multiple_layers(
                     self._layersList, nb_cells, verbose)
+
+    @ compute_solve_transi.needed
+    def get_id_sensors(self):
+        return self._id_sensors
+
+    @ compute_solve_transi.needed
+    def get_RMSE(self):
+
+        # Number of sensors (except boundary conditions : river and aquifer)
+        nb_sensors = len(self._T_measures[0])
+
+        # Number of times for which we have measures
+        nb_times = len(self._T_measures)
+
+        # Array of RMSE for each sensor
+        list_RMSE = np.array([np.sqrt(np.sum((self.temps_solve[id, :] - temps_obs)**2) / nb_times)
+                             for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
+
+        # Total RMSE
+        total_RMSE = np.sqrt(np.sum(list_RMSE**2) / nb_sensors)
+
+        return np.append(list_RMSE, total_RMSE)
 
     @ compute_solve_transi.needed
     def get_depths_solve(self):
@@ -327,6 +349,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
             return  (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
+
 
         if verbose:
             print(
