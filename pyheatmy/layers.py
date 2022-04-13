@@ -13,20 +13,24 @@ class Layer:
     def __repr__(self) -> str:
         return self.name + f" : ends at {self.zLow} m. " + self.params.__repr__()
 
-class LayerPriors(ParamsPriors) : 
+
+class LayerPriors(ParamsPriors):
     '''Rassemble tout les priors relatfifs aux params d'une couche'''
-    def __init__(self, name : str, z_low : float, priors : Sequence[Prior]):
+
+    def __init__(self, name: str, z_low: float, priors: Sequence[Prior]):
         ParamsPriors.__init__(self, priors)
         self.name = name
         self.z_low = z_low
-    
-    def perturb(self, layer) : 
+
+    def perturb(self, layer):
         return Layer(self.name, self.z_low, *ParamsPriors.perturb(self, layer.params))
 
     def sample(self):
         return Layer(self.name, self.z_low, *ParamsPriors.sample(self))
+
+
 class AllPriors:
-    def __init__(self, all_priors : Sequence[LayerPriors]):
+    def __init__(self, all_priors: Sequence[LayerPriors]):
         self.layered_prior_list = all_priors
 
     def sample(self):
@@ -43,7 +47,7 @@ class AllPriors:
 
     def __repr__(self):
         return self.layered_prior_list.__repr__()
-    
+
     def __len__(self):
         return self.layered_prior_list.__len__()
 
