@@ -98,9 +98,6 @@ class Time_series:  # on simule un tableau de mesures
             self._generate_dates_series()
         self._T_Shaft = np.zeros((len(self._dates),n_sens_vir)) # le tableau qui accueille des données de températures de forçage
         
-        self._generate_Temp_riv_series()
-        self._T_Shaft[:,0] = self._T_riv
-        
         self._generate_Temp_aq_series()
         self._T_Shaft[:,n_sens_vir-1] = self._T_aq
         self._T_Shaft_measures = list(zip(self._dates, self._T_Shaft))
