@@ -5,7 +5,7 @@ from .core import Column
 from pyheatmy import DEFAULT_dH, DEFAULT_T_riv, DEFAULT_T_aq, DEFAULT_time_step, N_SENSORS_SHAFT
 
 import numpy as np
-from random import normal
+from numpy.random import normal
 
 class Time_series:  # on simule un tableau de mesures
     def __init__(
@@ -26,22 +26,25 @@ class Time_series:  # on simule un tableau de mesures
         self._sigma_P = sigma_meas_P
         self._sigma_T = sigma_meas_T
 
-        self._dates = None
+        self._dates = np.array([None])
         # le tableau d'observation des charges utilisable dans colonne
-        self._dH = None
-        self._dH_perturb = None # avec perturbation
+        self._dH = np.array([None])
+        self._dH_perturb = np.array([None]) # avec perturbation
         # récupère la liste de température observée de la rivière (au cours du temps)
-        self._T_riv = None
-        self._T_riv_perturb = None # avec perturbation
+        self._T_riv = np.array([None])
+        self._T_riv_perturb = np.array([None]) # avec perturbation
         # le tableau d'observation de la pression et de la température rivière
         self._T_riv_dH_measures = None
         self._T_riv_dH_measures_perturb = None
         # récupère la liste de température observée de l'aquifère (au cours du temps)
-        self._T_aq = None
-        self._T_aq_perturb = None # avec perturbation
+        self._T_aq = np.array([None])
+        self._T_aq_perturb = np.array([None]) # avec perturbation
         # le tableau d'observation des températures utilisable dans colonne
-        self._T_vir = None
-        self._T_vir_perturb = None # avec perturbation
+        self._T_Shaft = np.array([None])
+        self._T_Shaft_perturb = np.array([None]) # avec perturbation
+
+        self._T_Shaft_measures = None
+        self._T_Shaft_perturb_measures = None # avec perturbation
 
 
     @classmethod
@@ -64,66 +67,66 @@ class Time_series:  # on simule un tableau de mesures
         self._dH = self._param_dH[0]*np.cos(2*np.pi*t_range/self._param_dH[1]) + self._param_dH[2]
 
     def _generate_Temp_riv_series(self): # renvoie un signal sinusoïdal de temperature rivière
-        if self._dates == None :
+        if self._dates.any() == None :
             self._generate_dates_series()
 
         t_range = np.arange(len(self._dates))*self._param_dates[2]
         self._T_riv = self._param_T_riv[0]*np.cos(2*np.pi*t_range/self._param_T_riv[1]) + self._param_T_riv[2]
 
     def _generate_Temp_aq_series(self): # renvoie un signal sinusoïdal de temperature aquifère
-        if self._dates == None :
+        if self._dates.any() == None :
             self._generate_dates_series()
 
         t_range = np.arange(len(self._dates))*self._param_dates[2]
         self._T_aq = self._param_T_aq[0]*np.cos(2*np.pi*t_range/self._param_T_aq[1]) + self._param_T_aq[2]
 
     def _generate_T_riv_dH_series(self): # renvoie un signal sinusoïdal de différence de charge
-        if self._dates == None :
+        if self._dates.any() == None :
             self._generate_dates_series()
             
-        if self._dH == None :
+        if self._dH.any() == None :
             self._generate_dH_series()
 
-        if self._T_riv == None :
+        if self._T_riv.any() == None :
             self._generate_Temp_riv_series()
 
         self._T_river_dH_measures = list(zip(self._dates,list(zip(self._dH, self._T_riv))))
 
-    def _generate_Temp_series(self, n_sens_vir=N_SENSORS_SHAFT): # en argument n_sens_vir le nb de capteur (2 aux frontières et 3 inutiles à 0)
+    def _generate_Shaft_Temp_series(self, n_sens_vir=N_SENSORS_SHAFT): # en argument n_sens_vir le nb de capteur (2 aux frontières et 3 inutiles à 0)
         # initialisation
-        if self._dates == None :
+        if self._dates.any() == None :
             self._generate_dates_series()
-        T_vir = np.zeros((len(self._dates),n_sens_vir)) # le tableau qui accueille des données de températures de forçage
+        self._T_Shaft = np.zeros((len(self._dates),n_sens_vir)) # le tableau qui accueille des données de températures de forçage
         
         self._generate_Temp_riv_series()
-        T_vir[:,0] = self._T_riv
+        self._T_Shaft[:,0] = self._T_riv
         
         self._generate_Temp_aq_series()
-        T_vir[:,n_sens_vir-1] = self._T_aq
-        
-        self._T_vir = list(zip(self._dates, T_vir))
+        self._T_Shaft[:,n_sens_vir-1] = self._T_aq
+        self._T_Shaft_measures = list(zip(self._dates, self._T_Shaft))
     
     def _generate_perturb_Shaft_Temp_series(self, n_sens_vir=N_SENSORS_SHAFT):
-        if self._dates == None :
-            self._generate_Temp_series()
-        n_t = len(self._dates)
-
-        if self._T_vir == None :
-            self._generate_Temp_series()
-
-        self._T_vir_perturb = np.zeros((n_t,n_sens_vir))
-        self._T_vir_perturb[:,-1] = self._T_vir[:,-1] + normal(0,self._sigma_T, n_t)
-
-    def _generate_perturb_T_riv_dH_series(self):
-        if self._dates == None :
+        if self._dates.any() == None :
             self._generate_dates_series()
         n_t = len(self._dates)
 
-        if self._T_riv == None :
+        if self._T_Shaft.any() == None :
+            self._generate_Shaft_Temp_series()
+
+        self._T_Shaft_perturb = np.zeros((n_t,n_sens_vir))
+        self._T_Shaft_perturb[:,-1] = self._T_Shaft[:,-1] + normal(0,self._sigma_T, n_t)
+        self._T_Shaft_perturb_measures = list(zip(self._dates, self._T_Shaft_perturb))
+
+    def _generate_perturb_T_riv_dH_series(self):
+        if self._dates.any() == None :
+            self._generate_dates_series()
+        n_t = len(self._dates)
+
+        if self._T_riv.any() == None :
             self._generate_Temp_riv_series()
         self._T_riv_perturb = self._T_riv + normal(0,self._sigma_T, n_t)
 
-        if self._dH == None :
+        if self._dH.any() == None :
             self._generate_dH_series()
         self._dH_perturb = self._dH + normal(0,self._sigma_P, n_t)
 
