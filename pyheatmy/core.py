@@ -354,8 +354,9 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             #l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire 
             
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-            return  (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
+            return  (prev_sigma/actual_sigma)**3*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy)) # groupé par 1000 parce que plus simple à calculer
             #probabilité d'acceptation
+
 
         if verbose:
             print(
@@ -451,6 +452,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_cells: int,#le nombre de cellules de la colonne
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),#les quantiles pour l'affichage de stats sur les valeurs de température
         verbose=True,#affiche texte explicatifs ou non
+        incertitudes = True,
         sigma_temp_prior: Prior = Prior((0.01, np.inf), 2, lambda x : 1/x)
     ):
         if isinstance(quantile, Number):#si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
@@ -470,17 +472,29 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 #liste des indices des cellules contenant les capteur de température : exigence de l'IHM
         temp_ref = self._T_measures[:, :].T#prend la transposée pour avoir en ligne les points de mesures et en colonnes les temps (par souci de cohérence avec les tableaux de résultats de la simulation)
 
-        def compute_energy(temp: np.array, sigma_obs: float = 1):#sigma vaut 1 quand pas d'incertitude sur valeur température
+        if incertitudes:
+            def compute_energy(temp: np.array, sigma_obs: float = 1):#sigma vaut 1 quand pas d'incertitude sur valeur température
             # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
-            norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
-            return 0.5 * (norm / sigma_obs) ** 2
+                norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
+                return 0.5 * (norm / sigma_obs) ** 2
            #énergie definit par 1/2sigma²||T-Tref||²+ln(T), ici on ne cherche pas à minimiser le terme en ln car il est constant
             #l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire
 
-        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-            return (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy) 
-            # probabilité d'acceptation     
-          
+            def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
+                return (prev_sigma/actual_sigma)**3*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy) 
+            # probabilité d'acceptation 
+            # 3 -> np.size(self._T_measures), plus facile à calculer reparamétrisation du problème
+        
+        else:
+            def compute_energy(temp: np.array, sigma_obs: float = 1):
+                # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
+                norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
+                return 0.5 * (norm) ** 2
+
+            def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
+                return np.exp(prev_energy - actual_energy) 
+    
+
         if verbose:
             print(
                 "--- Compute Mcmc ---",
