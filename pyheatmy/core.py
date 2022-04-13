@@ -1,5 +1,5 @@
 from multiprocessing.sharedctypes import Value
-from typing import Sequence, Union
+from typing import List, Sequence, Union
 from random import random, choice
 from operator import attrgetter
 from numbers import Number
@@ -9,13 +9,12 @@ import numpy as np
 from tqdm import trange
 from scipy.interpolate import lagrange
 
-from .params import Param, ParamsPriors, Prior, PARAM_LIST
-from .state import State
+from .params import  Param, ParamsPriors, Prior, PARAM_LIST
+from .state import State, StateOld
 from .checker import checker
 
 from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T, compute_H_stratified, compute_T_stratified
-from .layers import Layer, getListParameters, sortLayersList
-
+from .layers import Layer, getListParameters, sortLayersList, AllPriors, LayerPriors
 
 class Column:  # colonne de sédiments verticale entre le lit de la rivière et l'aquifère
     def __init__(
@@ -320,17 +319,17 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     flows_solve = property(get_flows_solve)
 #récupération des débits spécifiques au cours du temps à toutes les profondeurs (par défaut) ou bien à une profondeur donnée
 
-    @ checker
-    def compute_mcmc(
-       self,#la colonne
-       nb_iter: int, 
-       priors: dict, #dictionnaire défini dans params.py, contentant écart type et range si on considère une distribution uniforme, contenant aussi fonction de répartition sinon
-       nb_cells: int, #le nombre de cellules de la colonne
-       quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95), #les quantiles pour l'affichage de stats sur les valeurs de température
-       verbose=True, #affiche texte explicatifs ou non
+    def _compute_mcmc_deprecated(
+        self,#la colonne
+        nb_iter: int,
+        priors: dict,#dictionnaire défini dans params.py, contentant écart type et range si on considère une distribution uniforme, contenant aussi fonction de répartition sinon
+        nb_cells: int,#le nombre de cellules de la colonne
+        quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),#les quantiles pour l'affichage de stats sur les valeurs de température
+        verbose=True,#affiche texte explicatifs ou non
+        sigma_temp_prior = Prior
     ):
-       if isinstance(quantile, Number):#si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
-           quantile = [quantile]
+        if isinstance(quantile, Number):#si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
+            quantile = [quantile]
 
         priors = ParamsPriors(
             [Prior(*args) for args in (priors[lbl]
@@ -352,12 +351,11 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
             #énergie definit par 1/2sigma²||T-Tref||²+ln(T), ici on ne cherche pas à minimiser le terme en ln car il est constant
-            #l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire
-
-        def compute_acceptance(actual_energy: float, prev_energy: float):
-            return min(1, np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
-            # probabilité d'acceptation      
-
+            #l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire 
+            
+        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
+            return  (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
+            #probabilité d'acceptation
 
         if verbose:
             print(
@@ -371,24 +369,27 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             )
 
         self._states = list()
-        
+
         nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size#nombre de profondeurs (=nb.cells)#pas sur de comprendre l'intérêt
         _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de températures des différentes profondeurs en fonction du temps à chaque étape de MCMC
         _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de débits spécifiques des différentes profondeurs en fonction du temps à chaque étape de MCMC
 
-#crée un état initial avec des valeurs de températures au niveau des 4 capteurs
+ #crée un état initial avec des valeurs de températures au niveau des 4 capteurs
         for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):#initialisation des tableaux de résultats de la MCMC, 1000 nombre arbitraire du TP
-            init_param = priors.sample_params()#modifié car pas que des lois uniformes maintenant
+            init_param = priors.sample()#modifié car pas que des lois uniformes maintenant
+            init_sigma_temp = sigma_temp_prior.sample()
             self.compute_solve_transi(init_param, nb_cells, verbose=False)
             #fait tourner 1000 fois le modèle direct avec les paramètres initiaux
             self._states.append(
-                State(
+                StateOld(
                     params=init_param,
-                    energy=compute_energy(self.temps_solve[ind_ref, :]),
+                    energy=compute_energy(
+                        self.temps_solve[ind_ref, :], sigma_obs=init_sigma_temp),
                     ratio_accept=1,
+                    sigma_temp  = init_sigma_temp
                 )
             )
-        #self._states de longueur 1000 à la fin de la boucle for
+            #self._states de longueur 1000 à la fin de la boucle for
 
         self._initial_energies = [state.energy for state in self._states]
         self._states = [min(self._states, key=attrgetter("energy"))]#self._states de longueur 1 qu'on prend en état initial, celui qui minimise l'énergie (état stationnaire) de la simulation
@@ -400,15 +401,19 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         #implémentation de la MCMC sur le nombre d'itérations souhaitées
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)#perturbe les paramètres précédents tout en respectant le prior
+            current_sigma_temp = sigma_temp_prior.perturb(self._states[-1].sigma_temp)
             self.compute_solve_transi(params, nb_cells, verbose=False)
-            energy = compute_energy(self.temps_solve[ind_ref, :])#calcule les énergies au niveau des capteurs de températures, pourquoi?
-            ratio_accept = compute_acceptance(energy, self._states[-1].energy)#calcul de la probabilité d'acceptation
+            energy = compute_energy(
+                self.temps_solve[ind_ref, :], sigma_obs = current_sigma_temp)#calcule les énergies au niveau des capteurs de températures, pourquoi?
+            ratio_accept = compute_acceptance(
+                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp_prior.distrib)#calcul de la probabilité d'acceptation
             if random() < ratio_accept:
                 self._states.append(
-                    State(
+                    StateOld(
                         params=params,
                         energy=energy,
                         ratio_accept=ratio_accept,
+                        sigma_temp = current_sigma_temp
                     )
                 )#si décide de conserver le nouvel état (cf cours sur MCMC), on rajoute notre nouvel état au tableau des états
                 _temps[_] = self.temps_solve
@@ -424,6 +429,126 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         if verbose:
             print("Mcmc Done.\n Start quantiles computation")
+
+      #création des deux dictionnaires de quantile
+        self._quantiles_temps = {
+            quant: res
+            for quant, res in zip(quantile, np.quantile(_temps, quantile, axis=0))
+        }#axis=0 fait calculer en 'moyennant' sur les étapes de la MCMC
+        self._quantiles_flows = {
+            quant: res
+            for quant, res in zip(quantile, np.quantile(_flows, quantile, axis=0))
+        }#axis=0 fait calculer en 'moyennant' sur les étapes de la MCMC
+        if verbose:
+            print("Quantiles Done.")
+
+    @checker
+    def compute_mcmc(
+        self,#la colonne
+        nb_iter: int,
+        all_priors: Union[AllPriors, Sequence[ Union[LayerPriors,
+                            Sequence[Union[str, float, Sequence[ Union[Prior, dict]]]]]]],
+        nb_cells: int,#le nombre de cellules de la colonne
+        quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),#les quantiles pour l'affichage de stats sur les valeurs de température
+        verbose=True,#affiche texte explicatifs ou non
+        sigma_temp_prior = Prior
+    ):
+        if isinstance(quantile, Number):#si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
+            quantile = [quantile]
+
+        if not isinstance(all_priors, AllPriors) :
+            all_priors = AllPriors(
+                [LayerPriors(*args) for args in (layer for layer in all_priors)])
+
+        ind_ref = [
+            np.argmin(
+                np.abs(
+                    z - np.linspace(self._real_z[0], self._real_z[-1], nb_cells))
+            )#renvoie la position de la celulle dont le milieu est le plus proche de la position du capteur de température 
+            for z in self._real_z[1:-1]#pour les emplacements des 4 capteurs de température
+        ]
+#liste des indices des cellules contenant les capteur de température : exigence de l'IHM
+        temp_ref = self._T_measures[:, :].T#prend la transposée pour avoir en ligne les points de mesures et en colonnes les temps (par souci de cohérence avec les tableaux de résultats de la simulation)
+
+        def compute_energy(temp: np.array, sigma_obs: float = 1):#sigma vaut 1 quand pas d'incertitude sur valeur température
+            # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
+            norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
+            return 0.5 * (norm / sigma_obs) ** 2
+           #énergie definit par 1/2sigma²||T-Tref||²+ln(T), ici on ne cherche pas à minimiser le terme en ln car il est constant
+            #l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire
+
+        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
+            return (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy) 
+            # probabilité d'acceptation     
+          
+        if verbose:
+            print(
+                "--- Compute Mcmc ---",
+                "Priors :",
+                *(f"    {prior}" for prior in all_priors),
+                f"Number of cells : {nb_cells}",
+                f"Number of iterations : {nb_iter}",
+                "Launch Mcmc",
+                sep="\n",
+            )
+
+        self._states = list()
+
+        nb_z = np.linspace(self._real_z[0], self._real_z[-1], nb_cells).size#nombre de profondeurs (=nb.cells)#pas sur de comprendre l'intérêt
+        _temps = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de températures des différentes profondeurs en fonction du temps à chaque étape de MCMC
+        _flows = np.zeros((nb_iter + 1, nb_z, len(self._times)), np.float32)#tableau tri-dimensionnel de débits spécifiques des différentes profondeurs en fonction du temps à chaque étape de MCMC
+
+  #crée un état initial avec des valeurs de températures au niveau des 4 capteurs
+        for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):#initialisation des tableaux de résultats de la MCMC, 1000 nombre arbitraire du TP
+            init_layers =  all_priors.sample()#modifié car pas que des lois uniformes maintenant
+            init_sigma_temp = sigma_temp_prior.sample()
+            self.compute_solve_transi(init_layers, nb_cells, verbose=False)
+#fait tourner 1000 fois le modèle direct avec les paramètres initiaux
+            self._states.append(
+                State(
+                    layers=init_layers,
+                    energy=compute_energy(
+                        self.temps_solve[ind_ref, :], sigma_obs=init_sigma_temp),
+                    ratio_accept=1,
+                    sigma_temp  = init_sigma_temp
+                )
+            )#self._states de longueur 1000 à la fin de la boucle for
+
+        self._initial_energies = [state.energy for state in self._states]
+        self._states = [min(self._states, key=attrgetter("energy"))]#self._states de longueur 1 qu'on prend en état initial, celui qui minimise l'énergie (état stationnaire) de la simulation
+
+        _temps[0] = self.temps_solve
+        _flows[0] = self.flows_solve
+        #initalise les températures et les débits spécifiques avec les valeurs obtenues au bout de la dernière simulation de l'état initial
+
+        #implémentation de la MCMC sur le nombre d'itérations souhaitées
+        for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
+            current_layers = all_priors.perturb(self._states[-1].layers)
+            current_sigma_temp = sigma_temp_prior.perturb(self._states[-1].sigma_temp)
+            self.compute_solve_transi(current_layers, nb_cells, verbose=False)
+            energy = compute_energy(
+                self.temps_solve[ind_ref, :], sigma_obs = current_sigma_temp)#calcule les énergies au niveau des capteurs de températures, pourquoi?
+            ratio_accept = compute_acceptance(
+                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp_prior.density)#calcul de la probabilité d'acceptation
+            if random() < ratio_accept:
+                self._states.append(
+                    State(
+                        layers=current_layers,
+                        energy=energy,
+                        ratio_accept=ratio_accept,
+                        sigma_temp = current_sigma_temp
+                    )
+                )#si décide de conserver le nouvel état (cf cours sur MCMC), on rajoute notre nouvel état au tableau des états
+                _temps[_] = self.temps_solve
+                _flows[_] = self.flows_solve
+                #on ajoute dans ce cas les nouvelles températures et débits spécifiques à nos tableaux de résultats
+            else:
+                self._states.append(self._states[-1])
+                self._states[-1].ratio_accept = ratio_accept
+                _temps[_] = _temps[_ - 1]
+                _flows[_] = _flows[_ - 1]
+                #si refusé, on recopie l'état précédent, en changeant la probabilité d'acceptation. On conserve les valeurs de températures et débits spécifiques précédents
+        self.compute_solve_transi.reset()#restaure les valeurs par défaut de compute_solve_transi
 
       #création des deux dictionnaires de quantile
         self._quantiles_temps = {
@@ -514,4 +639,4 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     @compute_mcmc.needed#erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     def get_flows_quantile(self, quantile):
         return self._quantiles_flows[quantile]
-        #retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demandé
+        #retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demandé 
