@@ -1,11 +1,8 @@
 import numpy as np
 from datetime import datetime, timedelta
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
-from .state import State
 from .checker import checker
 from .core import Column
-from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T, compute_H_stratified, compute_T_stratified
-from .layers import Layer, getListParameters, sortLayersList
 
 
 class Time_series:  # on simule un tableau de mesures
@@ -28,9 +25,11 @@ class Time_series:  # on simule un tableau de mesures
         self._T_aq = None
         # le tableau d'observation des températures utilisable dans colonne
         self._T_vir = None
-        
 
-    
+    @classmethod
+    def from_dict(cls, time_series_dict):
+        return cls(**time_series_dict)
+
     def _generate_dates_series(self, n_len_times = 2000):
         if self.param_time_dates == None :
             self._dates = np.array([datetime.fromtimestamp(15*k) for k in range(n_len_times)])
@@ -53,14 +52,23 @@ class Time_series:  # on simule un tableau de mesures
 
     def _generate_Temp_riv_series(self): # renvoie un signal sinusoïdal de temperature rivière
         if self._dates == None :
-            self._dH = None
+            self._T_riv = None
         else :
             t_range = np.arange(len(self._dates))*self.param_time_dates[2]
-            dH_signal = self.param_T_riv_signal[0]*np.cos(2*np.pi*t_range/param_T_riv_signal[1]) + param_T_riv_signal[2]
+            self._T_riv = self.param_T_riv_signal[0]*np.cos(2*np.pi*t_range/param_T_riv_signal[1]) + param_T_riv_signal[2]
 
     def _generate_Temp_aq_series(self): # renvoie un signal sinusoïdal de temperature aquifère
-            if self._dates == None :
-                self._dH = None
-            else :
-                t_range = np.arange(len(self._dates))*self.param_time_dates[2]
-                dH_signal = self.param_T_riv_signal[0]*np.cos(2*np.pi*t_range/param_T_riv_signal[1]) + param_T_riv_signal[2]
+        if self._dates == None :
+            self._T_aq = None
+        else :
+            t_range = np.arange(len(self._dates))*self.param_time_dates[2]
+            self._T_aq = self.param_T_aq_signal[0]*np.cos(2*np.pi*t_range/param_T_aq_signal[1]) + param_T_aq_signal[2]
+
+    def _generate_Temp_series(self, n_sens_vir=5): # en argument n_sens_vir le nb de capteur (2 aux frontières et 3 inutiles à 0)
+        if self._dates == None :
+            self._T_vir = None
+        else :
+            T_vir = np.zeros((len(self._dates),n_sens_vir)) # le tableau qui accueille des données de températures de forçage
+            T_vir[:,0] = self._generate_Temp_riv_series()._T_riv
+            T_vir[:,n_sens_vir-1] = self._generate_Temp_aq_series()._T_aq
+            self._T_vir = list(zip(self._dates, T_vir))
