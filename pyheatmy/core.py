@@ -321,9 +321,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         priors: dict,
         nb_cells: int,
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
-        verbose=True,
-        sigma_temp_prior = Prior
-    ):
+        verbose =True,
+        sigma_temp_prior : Prior = None
+        ):
+
         if isinstance(quantile, Number):
             quantile = [quantile]
 
@@ -348,7 +349,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             return 0.5 * (norm / sigma_obs) ** 2
 
         def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-            return  (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
+            return  (prev_sigma/actual_sigma)**3*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp((prev_energy - actual_energy))
 
 
         if verbose:
@@ -438,7 +439,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_cells: int,
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
         verbose=True,
-        sigma_temp_prior = Prior
+        incertitudes = True,
+        sigma_temp_prior : Prior = Prior((0.01, np.inf), 2, lambda x : 1/x)
     ):
         if isinstance(quantile, Number):
             quantile = [quantile]
@@ -457,14 +459,24 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         temp_ref = self._T_measures[:, :].T
 
-        def compute_energy(temp: np.array, sigma_obs: float = 1):
-            # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
-            norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
-            return 0.5 * (norm / sigma_obs) ** 2
+        if incertitudes:
+            def compute_energy(temp: np.array, sigma_obs: float = 1):
+                # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
+                norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
+                return 0.5 * (norm / sigma_obs) ** 2
 
-        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-            return (prev_sigma/actual_sigma)**np.size(self._T_measures)*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy) 
+            def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
+                return (prev_sigma/actual_sigma)**3*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy)   # 3 -> np.size(self._T_measures), plus facile à calculer reparamétrisation du problème
+        
+        else:
+            def compute_energy(temp: np.array, sigma_obs: float = 1):
+                # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
+                norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
+                return 0.5 * (norm) ** 2
 
+            def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
+                return np.exp(prev_energy - actual_energy) 
+    
         if verbose:
             print(
                 "--- Compute Mcmc ---",
