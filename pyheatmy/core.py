@@ -9,12 +9,12 @@ import numpy as np
 from tqdm import trange
 from scipy.interpolate import lagrange
 
-from .params import AllPriors, LayerPriors, Param, ParamsPriors, Prior, PARAM_LIST
+from .params import  Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State, StateOld
 from .checker import checker
 
 from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T, compute_H_stratified, compute_T_stratified
-from .layers import Layer, getListParameters, sortLayersList
+from .layers import Layer, getListParameters, sortLayersList, AllPriors, LayerPriors
 
 
 class Column:  # colonne de sédiments verticale entre le lit de la rivière et l'aquifère
@@ -300,7 +300,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_cells: int,
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
         verbose=True,
-        sigma_temp = Prior
+        sigma_temp_prior = Prior
     ):
         if isinstance(quantile, Number):
             quantile = [quantile]
@@ -347,7 +347,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
             init_param = priors.sample()
-            init_sigma_temp = sigma_temp.sample()
+            init_sigma_temp = sigma_temp_prior.sample()
             self.compute_solve_transi(init_param, nb_cells, verbose=False)
 
             self._states.append(
@@ -368,12 +368,12 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             params = priors.perturb(self._states[-1].params)
-            current_sigma_temp = sigma_temp.perturb(self._states[-1].sigma_temp)
+            current_sigma_temp = sigma_temp_prior.perturb(self._states[-1].sigma_temp)
             self.compute_solve_transi(params, nb_cells, verbose=False)
             energy = compute_energy(
                 self.temps_solve[ind_ref, :], sigma_obs = current_sigma_temp)
             ratio_accept = compute_acceptance(
-                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp.distrib)
+                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp_prior.distrib)
             if random() < ratio_accept:
                 self._states.append(
                     StateOld(
@@ -415,7 +415,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_cells: int,
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
         verbose=True,
-        sigma_temp = Prior
+        sigma_temp_prior = Prior
     ):
         if isinstance(quantile, Number):
             quantile = [quantile]
@@ -461,7 +461,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
             init_layers =  all_priors.sample()
-            init_sigma_temp = sigma_temp.sample()
+            init_sigma_temp = sigma_temp_prior.sample()
             self.compute_solve_transi(init_layers, nb_cells, verbose=False)
 
             self._states.append(
@@ -482,12 +482,12 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             current_layers = all_priors.perturb(self._states[-1].layers)
-            current_sigma_temp = sigma_temp.perturb(self._states[-1].sigma_temp)
+            current_sigma_temp = sigma_temp_prior.perturb(self._states[-1].sigma_temp)
             self.compute_solve_transi(current_layers, nb_cells, verbose=False)
             energy = compute_energy(
                 self.temps_solve[ind_ref, :], sigma_obs = current_sigma_temp)
             ratio_accept = compute_acceptance(
-                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp.density)
+                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp_prior.density)
             if random() < ratio_accept:
                 self._states.append(
                     State(

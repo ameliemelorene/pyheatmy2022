@@ -38,7 +38,8 @@ class Prior:
             return 1  # better choices possible : arctan(uniform)
     
     def __repr__(self) -> str:
-        return f"Prior sur une valeure qui évolue entre {range[0]} et {range[1]}"
+        return f"Prior sur une valeure qui évolue entre {self.range[0]} et {self.range[1]}"
+
 
 
 class ParamsPriors:
@@ -62,40 +63,6 @@ class ParamsPriors:
 
     def __len__(self):
         return self.prior_list.__len__()
-
-class LayerPriors(ParamsPriors) : 
-    '''Rassemble tout les priors relatfifs aux params d'une couche'''
-    def __init__(self, name : str, z_low : float, priors : Sequence[Prior]):
-        ParamsPriors.__init__(self, priors)
-        self.name = name
-        self.z_low = z_low
-    
-    def perturb(self, param) : 
-        return Layer(self.name, self.z_low, *ParamsPriors.perturb(self, param))
-
-    def sample(self):
-        return Layer(self.name, self.z_low, *ParamsPriors.sample(self))
-class AllPriors:
-    def __init__(self, all_priors : Sequence[LayerPriors]):
-        self.layered_prior_list = all_priors
-
-    def sample(self):
-        return [prior.sample() for prior in self.layered_prior_list]
-
-    def perturb(self, param):
-        return [prior.perturb(val) for prior, val in zip(self.layered_prior_list, param)]
-
-    def __iter__(self):
-        return self.layered_prior_list.__iter__()
-
-    def __getitem__(self, key):
-        return self.layered_prior_list[key]
-
-    def __repr__(self):
-        return self.layered_prior_list.__repr__()
-    
-    def __len__(self):
-        return self.layered_prior_list.__len__()
 
 if __name__ == '__main__':
     import numpy as np

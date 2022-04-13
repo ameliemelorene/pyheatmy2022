@@ -15,7 +15,7 @@ class StateOld:
 
 @dataclass
 class State:
-    Layers: Sequence[Layer]
+    layers: Sequence[Layer]
     energy: float
     ratio_accept: float
     sigma_temp = float
