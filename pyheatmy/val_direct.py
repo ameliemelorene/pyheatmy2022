@@ -3,7 +3,7 @@ from typing import Sequence
 
 from pyheatmy.core import Column
 
-class valdirect(Column):
+class valdirect:
     "Compute the value of temperature based on the numerical solution."    
     def __init__(self,
         depth_sensors: Sequence[float],
@@ -13,6 +13,7 @@ class valdirect(Column):
         lambda_m: float, 
         rho_c_m: float, 
         rho_c_w: float):
+        # utils.py + layers.py
         
         self.depth_sensors = depth_sensors
         self.offset = offset
@@ -36,6 +37,10 @@ class valdirect(Column):
 
         self._a = None #ou CODE_a
         self._b = None
+        self.loc = None
+
+    def from_dict(cls, val_dir_dict):
+        return cls(**val_dir_dict)
 
     def compute_a(self, nb_cells, period):
         dz = self._real_z[-1] / nb_cells
@@ -69,3 +74,7 @@ class valdirect(Column):
 
         a_cond = np.sqrt(np.pi/(self.kappa*period))
         self.analy_temp_cond = theta_mu + theta_amp*np.exp(-a_cond*self._z_solve)*np.cos(2*np.pi*all_dt/period - a_cond*self._z_solve)
+
+    def get_loc(self, nb_cells):
+        dz = self._real_z[-1] / nb_cells
+        self.loc = int(self._real_z/dz)
