@@ -462,11 +462,11 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         if incertitudes:
             def compute_energy(temp: np.array, sigma_obs: float = 1):
                 # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
-                norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
-                return 0.5 * (norm / sigma_obs) ** 2
+                norm = np.linalg.norm(temp - temp_ref)
+                return 0.5 * (norm / sigma_obs) ** 2 + np.size(self.T_measures)*np.log(sigma_obs)
 
             def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-                return (prev_sigma/actual_sigma)**3*sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy)   # 3 -> np.size(self._T_measures), plus facile à calculer reparamétrisation du problème
+                return sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy)
         
         else:
             def compute_energy(temp: np.array, sigma_obs: float = 1):
@@ -575,6 +575,11 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     def get_best_param(self):
         """return the params that minimize the energy"""
         return min(self._states, key=attrgetter("energy")).params
+
+    @compute_mcmc
+    def get_best_sigma(self):
+        """return the best sigma that minimizes the energy"""
+        return min(self._states, key=attrgetter("energy")).sigma_temp
 
     @ compute_mcmc.needed
     def get_all_params(self):
