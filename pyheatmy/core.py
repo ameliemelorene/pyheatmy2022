@@ -509,7 +509,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             def compute_energy(temp: np.array, sigma_obs: float = 1):
                 # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
                 norm = np.linalg.norm(temp - temp_ref)
-                return 0.5 * (norm / sigma_obs) ** 2 + np.size(self.T_measures)*np.log(sigma_obs)    # énergie definit par 1/2sigma²||T-Tref||²+ln(T)
+                return 0.5 * (norm / sigma_obs) ** 2 + np.size(self._T_measures)*np.log(sigma_obs)    # énergie definit par 1/2sigma²||T-Tref||²+ln(T)
                 # l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire
 
             def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
@@ -639,7 +639,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         """return the params that minimize the energy"""
         return [layer.param for layer in min(self._states, key=attrgetter("energy")).layers]  # retourne le couple de paramètres minimisant l'énergie par lequels est passé la MCMC
 
-    @compute_mcmc.needed
+    @ compute_mcmc.needed
     def get_best_sigma(self):
         """return the best sigma that minimizes the energy"""
         return min(self._states, key=attrgetter("energy")).sigma_temp
