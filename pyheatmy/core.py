@@ -509,14 +509,12 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             def compute_energy(temp: np.array, sigma_obs: float = 1):
                 # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
                 norm = np.linalg.norm(temp - temp_ref)
-                return 0.5 * (norm / sigma_obs) ** 2
-           # énergie definit par 1/2sigma²||T-Tref||²+ln(T), ici on ne cherche pas à minimiser le terme en ln car il est constant
-            # l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire
+                return 0.5 * (norm / sigma_obs) ** 2 + np.size(self.T_measures)*np.log(sigma_obs)    # énergie definit par 1/2sigma²||T-Tref||²+ln(T)
+                # l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire
 
             def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-                return np.exp(np.size(self._T_measures)*(np.log(prev_sigma) - np.log(actual_sigma)) + np.log(sigma_distrib(actual_sigma)) - np.log(sigma_distrib(prev_sigma)) + prev_energy - actual_energy)
-            # probabilité d'acceptation
-
+                # probabilité d'acceptation
+                return sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy)
         else:
             def compute_energy(temp: np.array, sigma_obs: float = 1):
                 # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
@@ -640,6 +638,11 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     def get_best_param(self):
         """return the params that minimize the energy"""
         return [layer.param for layer in min(self._states, key=attrgetter("energy")).layers]  # retourne le couple de paramètres minimisant l'énergie par lequels est passé la MCMC
+
+    @compute_mcmc
+    def get_best_sigma(self):
+        """return the best sigma that minimizes the energy"""
+        return min(self._states, key=attrgetter("energy")).sigma_temp
 
     @ compute_mcmc.needed
     def get_best_layers(self):
