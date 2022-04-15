@@ -3,6 +3,7 @@ from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .checker import checker
 from .core import Column
 from pyheatmy import DEFAULT_dH, DEFAULT_T_riv, DEFAULT_T_aq, DEFAULT_time_step, N_SENSORS_SHAFT, CODE_Temp
+from scipy.interpolate import interp1d #lagrange
 
 import numpy as np
 from numpy.random import normal
@@ -10,6 +11,8 @@ from numpy.random import normal
 class Time_series:  # on simule un tableau de mesures
     def __init__(
         self,
+        offset : float,
+        depth_sensors: list,
         param_time_dates: list = [None,None,DEFAULT_time_step], # liste [date début, date fin, pas de temps (constant)], format des dates tuple datetime ou none
         param_dH_signal: list = DEFAULT_dH, # liste [amplitude (m), période (s), offset (m)] pour un variation sinusoïdale
         param_T_riv_signal: list = DEFAULT_T_riv,  # liste [amplitude (°C), période (en seconde), offset (°C)] pour un variation sinusoïdale
@@ -25,6 +28,8 @@ class Time_series:  # on simule un tableau de mesures
         self._param_T_aq = param_T_aq_signal
         self._sigma_P = sigma_meas_P
         self._sigma_T = sigma_meas_T
+        self._depth_sensors = np.array(depth_sensors) 
+        self._real_z = np.array([0] + depth_sensors) + offset
 
         self._dates = np.array([None])
         # le tableau d'observation des charges utilisable dans colonne
@@ -103,8 +108,10 @@ class Time_series:  # on simule un tableau de mesures
         if self._T_Shaft.any() == None :
             self._T_Shaft = np.ones((len(self._dates),n_sens_vir))*CODE_Temp # le tableau qui accueille des données de températures de forçage
             self._T_Shaft[:,n_sens_vir-1] = self._T_aq
-            T_init = self._T_aq[0]
-            self._T_Shaft[0,:-1]=T_init*np.ones(n_sens_vir-1) # pour les conditions initiales au niveau des capteurs T1, T2, T3, ... avant Taq
+
+            f = interp1d([self._real_z[0],self._real_z[-1]], [self._T_riv[0] ,self._T_aq[0]])
+            self._T_Shaft[0]= f(self._depth_sensors) 
+        #T_init*np.ones(n_sens_vir-1) # pour les conditions initiales au niveau des capteurs T1, T2, T3, ... avant Taq
         # si T_shaft existe déjà (mais si maj) alors on maj seulement T_shaft_measure
         self._T_Shaft_measures = list(zip(self._dates, self._T_Shaft))
     
@@ -140,7 +147,7 @@ class Time_series:  # on simule un tableau de mesures
         id_sensors = column.get_id_sensors()
         for i in range(len(id_sensors)):
             self._T_Shaft[1:,i] = column._temps[id_sensors[i],1:] # maj les températures émulée des capteurs à partir de t>0 (ie t=1)
-        self._generate_Shaft_Temp_series()
+        self._generate_Shaft_Temp_series(column)
     
 
 

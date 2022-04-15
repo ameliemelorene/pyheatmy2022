@@ -7,7 +7,7 @@ import sys
 
 import numpy as np
 from tqdm import trange
-from scipy.interpolate import lagrange
+from scipy.interpolate import interp1d #lagrange
 
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State
@@ -37,7 +37,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         # récupère la liste de température de la rivière (au cours du temps)
         self._T_riv = np.array([t for _, (_, t) in dH_measures])
         # récupère la liste de température de l'aquifère (au cours du temps)
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])
+        self._T_aq = np.array([t[-1] for _, t in T_measures])
         # récupère la liste de températures des capteurs (au cours du temps)
         self._T_measures = np.array([t[:-1] for _, t in T_measures])
 
@@ -91,12 +91,14 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH
 
-        lagr = lagrange(
-            self._real_z, [self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]]
-        )
+        f = interp1d(self._real_z, [self._T_riv[0], *self._T_measures[0], self._T_aq[0]])
 
-        T_init = lagr(self._z_solve)
+        #lagr = lagrange(
+        #    self._real_z, [self._T_riv[0], *
+        #                   self._T_measures[0], self._T_aq[0]]
+        #)
+
+        T_init = f(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
