@@ -8,7 +8,8 @@ import sys
 import numpy as np
 from tqdm import trange
 
-from .lagrange import Lagrange
+#from .lagrange import Lagrange
+from scipy.interpolate import interp1d as Lagrange
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State, StateOld
 from .checker import checker
