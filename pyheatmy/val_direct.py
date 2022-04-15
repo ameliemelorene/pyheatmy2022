@@ -2,25 +2,35 @@ import numpy as np
 from typing import Sequence
 
 from pyheatmy.core import Column
+from pyheatmy import LAMBDA_W, RHO_W, C_W, DEFAULT_period, DEFAULT_time_step
 
 class valdirect:
     "Compute the value of temperature based on the numerical solution."    
-    def __init__(self,
-        depth_sensors: Sequence[float],
-        offset: float, 
-        dH_measures: list, 
+    def __init__( 
+        self,
+        # from column
+        z_range : np.array, # z_solve()
+        id_sensors : list,  # get_id_sensors()
+        time_window
+        # from user
+        dH : float,
+        time_window : tuple,
+        # from layer : self.param
         moinslog10K: float, 
-        lambda_m: float, 
-        rho_c_m: float, 
-        rho_c_w: float):
+        n:float, 
+        lambda_s : float,
+        rhos_cs : float,
+    ):
         # utils.py + layers.py
         
-        self.depth_sensors = depth_sensors
-        self.offset = offset
+        self._lambda_m = (n * (LAMBDA_W) ** 0.5 + (1.0 - n) * (lambda_s) ** 0.5) ** 2
+        self._rho_c_m = n * RHO_W * C_W + (1 - n) * rhos_cs
+        self._n_cell = len(z_range)
 
-        self._real_z = np.array([0] + depth_sensors) + offset
-        self._real_z[0] -= offset
-        self._dH = np.array([d for _, (d, _) in dH_measures])
+        self.period = DEFAULT_period*24*3600 # période du signal en secondes (s)
+        self.time_step = DEFAULT_time_step*60 # pas de temps en secondes (s)
+        self.time_range = 3000
+        self._dH = dH
         self._times = [t for t, _ in dH_measures]
 
         self.moinslog10K = moinslog10K
@@ -39,6 +49,7 @@ class valdirect:
         self._b = None
         self.loc = None
 
+    @classmethod
     def from_dict(cls, val_dir_dict):
         return cls(**val_dir_dict)
 
