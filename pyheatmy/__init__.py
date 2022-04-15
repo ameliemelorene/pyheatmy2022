@@ -5,7 +5,7 @@ DEFAULT_T_aq = [30, 24*3600, 12]
 DEFAULT_time_step = 15 # 15mn
 
 # valeur absurdre par défaut
-CODE = 959595
+CODE_Temp = 959595
 
 N_SENSORS_SHAFT = 4
 
