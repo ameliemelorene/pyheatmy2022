@@ -67,6 +67,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         self._quantiles_temps = None
         # dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de débits spécifiques associés au quantile, de longueur les temps de mesure
         self._quantiles_flows = None
+        self.lagr = Lagrange(
+            self._real_z, [self._T_riv[0], *
+                           self._T_measures[0], self._T_aq[0]]
+        )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
 
     @classmethod
     def from_dict(cls, col_dict):
@@ -98,13 +102,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        lagr = Lagrange(
-            self._real_z, [self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]]
-        )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
-
         # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
-        T_init = lagr(self._z_solve)
+        T_init = self.lagr(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
@@ -159,13 +158,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        lagr = Lagrange(
-            self._real_z, [self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]]
-        )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
-
         # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
-        T_init = lagr(self._z_solve)
+        T_init = self.lagr(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
