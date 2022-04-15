@@ -7,8 +7,8 @@ import sys
 
 import numpy as np
 from tqdm import trange
-from scipy.interpolate import lagrange
 
+from .lagrange import Lagrange
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State, StateOld
 from .checker import checker
@@ -98,7 +98,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        lagr = lagrange(
+        lagr = Lagrange(
             self._real_z, [self._T_riv[0], *
                            self._T_measures[0], self._T_aq[0]]
         )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
@@ -159,7 +159,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        lagr = lagrange(
+        lagr = Lagrange(
             self._real_z, [self._T_riv[0], *
                            self._T_measures[0], self._T_aq[0]]
         )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
