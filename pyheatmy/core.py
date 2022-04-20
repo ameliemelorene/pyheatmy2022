@@ -295,11 +295,11 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_times = len(self._T_measures)
 
         # Array of RMSE for each sensor
-        list_RMSE = np.array([np.sqrt(np.sum((self.temps_solve[id, :] - temps_obs)**2) / nb_times)
+        list_RMSE = np.array([np.sqrt(np.nansum((self.temps_solve[id, :] - temps_obs)**2) / nb_times)
                              for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
 
         # Total RMSE
-        total_RMSE = np.sqrt(np.sum(list_RMSE**2) / nb_sensors)
+        total_RMSE = np.sqrt(np.nansum(list_RMSE**2) / nb_sensors)
 
         return np.append(list_RMSE, total_RMSE)
 
@@ -423,8 +423,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         temp_ref = self._T_measures[:, :].T
 
         def compute_energy(temp: np.array):
-            norm = np.linalg.norm(temp - temp_ref)
-            return 0.5 * norm ** 2 / sigma2
+            norm2 = np.nansum((temp - temp_ref)**2)
+            return 0.5 * norm2  / sigma2
 
         def compute_log_acceptance(actual_energy: float, prev_energy: float):
             return prev_energy - actual_energy
@@ -536,8 +536,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         temp_ref = self._T_measures[:, :].T
 
         def compute_energy(temp: np.array, sigma2, sigma2_distrib):
-            norm = np.linalg.norm(temp - temp_ref)
-            return 0.5 * norm ** 2 / sigma2 + np.size(self._T_measures)*np.log(sigma2)/2 - np.log(sigma2_distrib(sigma2))
+            norm2 = np.nansum((temp - temp_ref)**2)
+            return 0.5 * norm2 / sigma2 + np.size(self._T_measures)*np.log(sigma2)/2 - np.log(sigma2_distrib(sigma2))
 
         def compute_log_acceptance(actual_energy: float, prev_energy: float):
             return prev_energy - actual_energy
