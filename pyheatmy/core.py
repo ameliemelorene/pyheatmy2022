@@ -32,7 +32,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         T_measures: list,  # liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
         sigma_meas_P: float,  # écart type de l'incertitude sur les valeurs de pression capteur
         sigma_meas_T: float,  # écart type de l'incertitude sur les valeurs de température capteur
-        inter_mode : str = 'lagrange', # mode d'interpolation du profil de température initial : 'lagrange' ou 'linear'
+        # mode d'interpolation du profil de température initial : 'lagrange' ou 'linear'
+        inter_mode: str = 'lagrange',
     ):
         # ! Pour l'instant on suppose que les temps matchent
         self._times = [t for t, _ in dH_measures]
@@ -77,10 +78,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                            self._T_measures[0], self._T_aq[0]]
         )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
         self.linear = interp1d(self._real_z, [self._T_riv[0],
-                     *self._T_measures[0], self._T_aq[0]])
+                                              *self._T_measures[0], self._T_aq[0]])
         # crée la fonction affine par morceaux faisant coincider les températures connues à la profondeur réelle
         self.inter_mode = inter_mode
-        self.tests() # teste que les conditions nécessaires à l'analyse sont remplies
+        self.tests()  # teste que les conditions nécessaires à l'analyse sont remplies
 
     def tests(self):
 
@@ -90,16 +91,17 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         # teste qu'il ne manque pas de données pour les conditions aux limites
         if np.isnan(np.sum(self._T_aq)):
-            raise NameError('Donnée(s) manquante(s) pour la température aquifère')
+            raise NameError(
+                'Donnée(s) manquante(s) pour la température aquifère')
 
         if np.isnan(np.sum(self._T_riv)):
-            raise NameError('Donnée(s) manquante(s) pour la température rivière')
+            raise NameError(
+                'Donnée(s) manquante(s) pour la température rivière')
 
         if np.isnan(np.sum(self._dH)):
             raise NameError('Donnée(s) manquante(s) pour la pression')
 
     @classmethod
-
     def from_dict(cls, col_dict):
         """
         Class method to create an instance of Column from a dictionnary.
@@ -137,10 +139,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
         # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
-        if self.inter_mode == 'lagrange':  
-          T_init = [self.lagr(z) for z in self._z_solve]
-        elif self.inter_mode == 'linear':  
-          T_init = f(self._z_solve)
+        if self.inter_mode == 'lagrange':
+            T_init = [self.lagr(z) for z in self._z_solve]
+        elif self.inter_mode == 'linear':
+            T_init = self.linear(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
@@ -196,10 +198,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
 
-        if self.inter_mode == 'lagrange':  
-          T_init = [self.lagr(z) for z in self._z_solve]
-        elif self.inter_mode == 'linear':  
-          T_init = f(self._z_solve)
+        if self.inter_mode == 'lagrange':
+            T_init = [self.lagr(z) for z in self._z_solve]
+        elif self.inter_mode == 'linear':
+            T_init = self.linear(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
@@ -512,14 +514,14 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         sigma2_temp_prior: Prior = Prior((0.01, np.inf), 1, lambda x: 1/x)
     ):
         if isinstance(quantile, Number):
-            quantile = [quantile]      
-        
+            quantile = [quantile]
+
         def conv(layer):
             name, prof, priors = layer
-            if isinstance(priors,dict):
-                return (name, prof, 
-            [Prior(*args) for args in (priors[lbl]
-                                       for lbl in PARAM_LIST)])      
+            if isinstance(priors, dict):
+                return (name, prof,
+                        [Prior(*args) for args in (priors[lbl]
+                                                   for lbl in PARAM_LIST)])
             else:
                 return layer
 
