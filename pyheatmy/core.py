@@ -7,7 +7,7 @@ import sys
 
 import numpy as np
 from tqdm import trange
-from scipy.interpolate import lagrange
+from scipy.interpolate import interp1d #lagrange
 
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State
@@ -37,7 +37,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         # récupère la liste de température de la rivière (au cours du temps)
         self._T_riv = np.array([t for _, (_, t) in dH_measures])
         # récupère la liste de température de l'aquifère (au cours du temps)
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])
+        self._T_aq = np.array([t[-1] for _, t in T_measures])
         # récupère la liste de températures des capteurs (au cours du temps)
         self._T_measures = np.array([t[:-1] for _, t in T_measures])
 
@@ -87,16 +87,18 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                            for j in range(len(self._times) - 1)])
         isdtconstant = np.all(all_dt == all_dt[0])
 
-        H_init = np.linspace(self._dH[0], 0, nb_cells)
+        H_init = self._dH[0] - self._dH[0] * self._z_solve / self._real_z[-1]
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH
 
-        lagr = lagrange(
-            self._real_z, [self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]]
-        )
+        f = interp1d(self._real_z, [self._T_riv[0], *self._T_measures[0], self._T_aq[0]])
 
-        T_init = lagr(self._z_solve)
+        #lagr = lagrange(
+        #    self._real_z, [self._T_riv[0], *
+        #                   self._T_measures[0], self._T_aq[0]]
+        #)
+
+        T_init = f(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
@@ -145,7 +147,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                            for j in range(len(self._times) - 1)])
         isdtconstant = np.all(all_dt == all_dt[0])
 
-        H_init = np.linspace(self._dH[0], 0, nb_cells)
+        H_init = self._dH[0] - self._dH[0] * self._z_solve / self._real_z[-1]
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH
 
@@ -346,9 +348,9 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             norm = np.sum(np.linalg.norm(temp - temp_ref, axis=-1))
             return 0.5 * (norm / sigma_obs) ** 2
 
-        def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, priors):
+        def compute_acceptance(actual_energy: float, prev_energy: float):
             # min useless
-            return min(1, (prev_sigma*priors.prior_list[-1].density(actual_sigma)/(actual_sigma*priors[-1].density(prev_sigma)))*np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
+            return min(1, np.exp((prev_energy - actual_energy) / len(self._times) ** 1))
 
         if verbose:
             print(
@@ -375,7 +377,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
                 State(
                     params=init_param,
                     energy=compute_energy(
-                        self.temps_solve[ind_ref, :], sigma_obs=init_param.sigma_temp),
+                        self.temps_solve[ind_ref, :]),
                     ratio_accept=1,
                 )
             )
@@ -390,9 +392,9 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             params = priors.perturb(self._states[-1].params)
             self.compute_solve_transi(params, nb_cells, verbose=False)
             energy = compute_energy(
-                self.temps_solve[ind_ref, :], sigma_obs=params.sigma_temp)
+                self.temps_solve[ind_ref, :])
             ratio_accept = compute_acceptance(
-                energy, self._states[-1].energy, params.sigma_temp, self._states[-1].params.sigma_temp, priors)
+                energy, self._states[-1].energy)
             if random() < ratio_accept:
                 self._states.append(
                     State(

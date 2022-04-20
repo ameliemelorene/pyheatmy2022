@@ -3,14 +3,16 @@ from numba import njit
 
 from .solver import solver, tri_product
 
+#LAMBDA_W = 0 # test du cas purement advectif
 LAMBDA_W = 0.6071
 RHO_W = 1000
 C_W = 4185
+ALPHA = 0.4
 
 
 @njit
 def compute_T(
-    moinslog10K, n, lambda_s, rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq, alpha=0.3
+    moinslog10K, n, lambda_s, rhos_cs, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq, alpha=ALPHA
 ):
     """ Computes T(z, t) by solving the heat equation : dT/dt = ke Delta T + ae nabla H nabla T, for an homogeneous column.
 
@@ -125,8 +127,8 @@ def compute_T(
 
 
 @njit
-def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, alpha=0.3):
-    """ Computes H(z, t) by solving the diffusion equation : Ss dH/dT = K Delta H, for an homogeneous column.
+def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, alpha=ALPHA):
+    """ Computes H(z, t) by solving the diffusion equation : Ss dH/dT = K Delta H, for  an homogeneous column.
 
     Parameters
     ----------
@@ -196,10 +198,10 @@ def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, al
 
             # Defining c
             c = zeros(n_cell, float32)
-            c[0] = (8*KsurSs / (2*dz**2)) * \
-                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
-            c[-1] = (8*KsurSs / (2*dz**2)) * \
-                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+            c[0] = (8*KsurSs / (3*dz**2)) * \
+                ((1-alpha)*H_riv[j+1] + alpha*H_riv[j])
+            c[-1] = (8*KsurSs / (3*dz**2)) * \
+                ((1-alpha)*H_aq[j+1] + alpha*H_aq[j])
 
             B_fois_H_plus_c = tri_product(
                 lower_diagonal_B, diagonal_B, upper_diagonal_B, H_res[:, j]) + c
@@ -223,10 +225,10 @@ def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, al
 
             # Defining c
             c = zeros(n_cell, float32)
-            c[0] = (8*KsurSs / (2*dz**2)) * \
-                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
-            c[-1] = (8*KsurSs / (2*dz**2)) * \
-                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+            c[0] = (8*KsurSs / (3*dz**2)) * \
+                ((1-alpha)*H_riv[j+1] + alpha*H_riv[j])
+            c[-1] = (8*KsurSs / (3*dz**2)) * \
+                ((1-alpha)*H_aq[j+1] + alpha*H_aq[j])
 
             B_fois_H_plus_c = tri_product(
                 lower_diagonal, diagonal, upper_diagonal, H_res[:, j]) + c
@@ -252,7 +254,7 @@ def compute_H(moinslog10K, Ss, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, al
 
 @njit
 def compute_T_stratified(
-    moinslog10K_list, n_list, lambda_s_list, rhos_cs_list, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq, alpha=0.3
+    moinslog10K_list, n_list, lambda_s_list, rhos_cs_list, all_dt, dz, H_res, H_riv, H_aq, T_init, T_riv, T_aq, alpha=ALPHA
 ):
     """ Computes T(z, t) by solving the heat equation : dT/dt = ke Delta T + ae nabla H nabla T, for an heterogeneous column.
 
@@ -370,7 +372,7 @@ def compute_T_stratified(
 
 
 @njit
-def compute_H_stratified(moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, alpha=0.3):
+def compute_H_stratified(moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_init, H_riv, H_aq, alpha=ALPHA):
     """ Computes H(z, t) by solving the diffusion equation : Ss dH/dT = K Delta H, for an heterogeneous column.
 
     Parameters
@@ -439,10 +441,10 @@ def compute_H_stratified(moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_
 
             # Defining c
             c = zeros(n_cell, float32)
-            c[0] = (8*KsurSs_list[0] / (2*dz**2)) * \
-                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
-            c[-1] = (8*KsurSs_list[n_cell - 1] / (2*dz**2)) * \
-                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+            c[0] = (8*KsurSs_list[0] / (3*dz**2)) * \
+                ((1-alpha)*H_riv[j+1] + alpha*H_riv[j])
+            c[-1] = (8*KsurSs_list[n_cell - 1] / (3*dz**2)) * \
+                ((1-alpha)*H_aq[j+1] + alpha*H_aq[j])
 
             B_fois_H_plus_c = tri_product(
                 lower_diagonal_B, diagonal_B, upper_diagonal_B, H_res[:, j]) + c
@@ -466,10 +468,10 @@ def compute_H_stratified(moinslog10K_list, Ss_list, all_dt, isdtconstant, dz, H_
 
             # Defining c
             c = zeros(n_cell, float32)
-            c[0] = (8*KsurSs_list[0] / (2*dz**2)) * \
-                (alpha*H_riv[j+1] + (1-alpha)*H_riv[j])
-            c[-1] = (8*KsurSs_list[n_cell - 1] / (2*dz**2)) * \
-                (alpha*H_aq[j+1] + (1-alpha)*H_aq[j])
+            c[0] = (8*KsurSs_list[0] / (3*dz**2)) * \
+                ((1-alpha)*H_riv[j+1] + alpha*H_riv[j])
+            c[-1] = (8*KsurSs_list[n_cell - 1] / (3*dz**2)) * \
+                ((1-alpha)*H_aq[j+1] + alpha*H_aq[j])
 
             B_fois_H_plus_c = tri_product(
                 lower_diagonal, diagonal, upper_diagonal, H_res[:, j]) + c
