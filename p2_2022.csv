@@ -1,5 +1,4 @@
-﻿"Titre de tracé : p2_2022"
-"#","Date Heure, GMT+01:00","Tension, V (LGR S/N: 21065765, SEN S/N: 21065765, LBL: tension)","Temp., °F (LGR S/N: 21065765, SEN S/N: 21065765, LBL: temperature)","Temp., °F (LGR S/N: 21065765, SEN S/N: 21065765, LBL: remperature boite)","Hôte connecté (LGR S/N: 21065765)","Arrêté (LGR S/N: 21065765)","Fin de fichier (LGR S/N: 21065765)"
+﻿"#","Date Heure, GMT+01:00","Tension, V (LGR S/N: 21065765, SEN S/N: 21065765, LBL: tension)","Temp., °F (LGR S/N: 21065765, SEN S/N: 21065765, LBL: temperature)","Temp., °F (LGR S/N: 21065765, SEN S/N: 21065765, LBL: remperature boite)","Hôte connecté (LGR S/N: 21065765)","Arrêté (LGR S/N: 21065765)","Fin de fichier (LGR S/N: 21065765)"
 1,03/02/22 03:00:00 PM,0.00916,475.412,457.435,,,
 2,03/02/22 03:15:00 PM,1.55066,53.121,271.449,,,
 3,03/02/22 03:30:00 PM,1.53826,69.858,252.221,,,
