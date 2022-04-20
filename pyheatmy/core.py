@@ -1,4 +1,3 @@
-from multiprocessing.sharedctypes import Value
 from typing import List, Sequence, Union
 from random import random, choice
 from operator import attrgetter
@@ -13,7 +12,7 @@ from scipy.interpolate import interp1d
 from scipy.interpolate import interp1d
 from .lagrange import Lagrange
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
-from .state import State, StateOld
+from .state import State
 from .checker import checker
 
 from .utils import C_W, RHO_W, LAMBDA_W, compute_H, compute_T, compute_H_stratified, compute_T_stratified
@@ -75,7 +74,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         self._quantiles_flows = None
         self.lagr = Lagrange(
             np.array(self._real_z), np.array([self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]])
+                                              self._T_measures[0], self._T_aq[0]])
         )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
         self.linear = interp1d(self._real_z, [self._T_riv[0],
                                               *self._T_measures[0], self._T_aq[0]])
@@ -140,7 +139,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
         if self.inter_mode == 'lagrange':
-            T_init = [self.lagr(z) for z in self._z_solve]
+            T_init = np.array([self.lagr(z) for z in self._z_solve])
         elif self.inter_mode == 'linear':
             T_init = self.linear(self._z_solve)
         T_riv = self._T_riv
@@ -199,7 +198,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
 
         if self.inter_mode == 'lagrange':
-            T_init = [self.lagr(z) for z in self._z_solve]
+            T_init = np.array([self.lagr(z) for z in self._z_solve])
         elif self.inter_mode == 'linear':
             T_init = self.linear(self._z_solve)
         T_riv = self._T_riv
@@ -295,7 +294,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_times = len(self._T_measures)
 
         # Array of RMSE for each sensor
-        list_RMSE = np.array([np.sqrt(np.nansum((self.get_temps_solve()[id, :] - temps_obs)**2) / nb_times) for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
+        list_RMSE = np.array([np.sqrt(np.nansum((self.get_temps_solve()[id, :] - temps_obs)**2) / nb_times)
+                             for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
 
         # Total RMSE
         total_RMSE = np.sqrt(np.nansum(list_RMSE**2) / nb_sensors)
@@ -423,7 +423,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         def compute_energy(temp: np.array):
             norm2 = np.nansum((temp - temp_ref)**2)
-            return 0.5 * norm2  / sigma2
+            return 0.5 * norm2 / sigma2
 
         def compute_log_acceptance(actual_energy: float, prev_energy: float):
             return prev_energy - actual_energy
