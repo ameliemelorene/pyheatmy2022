@@ -34,8 +34,12 @@ class Prior:
     def sample(self):#retourne de manièère uniforme un nombre de l'intervalle
         if self.range[0] > -inf and self.range[1] < inf:
             return uniform(*self.range)
+        elif self.range[0] > -inf:
+            return 1/uniform(self.range[0],1e7)  # better choices possible : arctan(uniform)
+        elif self.range[1] < inf:
+            return 1/uniform(-1e7,self.range[1])
         else:
-            return 1  # better choices possible : arctan(uniform)
+            1/uniform(-1e7,1e7)
     
     def __repr__(self) -> str:
         return f"Prior sur une valeure qui évolue entre {self.range[0]} et {self.range[1]}"

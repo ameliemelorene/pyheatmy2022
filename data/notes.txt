@@ -1,0 +1,5 @@
+P2->T1
+P1->T2
+T2 attention sonde 2
+
+pack pression mouillé en p2 dernière partie de série Pdif probablement intérompue
