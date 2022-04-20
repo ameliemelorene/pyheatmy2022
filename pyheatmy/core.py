@@ -6,7 +6,6 @@ from numbers import Number
 import sys
 
 import numpy as np
-from pkg_resources import get_entry_map
 from tqdm import trange
 from scipy.interpolate import interp1d
 
@@ -75,8 +74,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         # dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de débits spécifiques associés au quantile, de longueur les temps de mesure
         self._quantiles_flows = None
         self.lagr = Lagrange(
-            self._real_z, [self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]]
+            np.array(self._real_z), np.array([self._T_riv[0], *
+                           self._T_measures[0], self._T_aq[0]])
         )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
         self.linear = interp1d(self._real_z, [self._T_riv[0],
                                               *self._T_measures[0], self._T_aq[0]])
@@ -296,11 +295,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_times = len(self._T_measures)
 
         # Array of RMSE for each sensor
-        list_RMSE = np.array([np.sqrt(np.sum((self.get_temps_solve()[id, :] - temps_obs)**2) / nb_times)
-                             for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
+        list_RMSE = np.array([np.sqrt(np.nansum((self.get_temps_solve()[id, :] - temps_obs)**2) / nb_times) for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
 
         # Total RMSE
-        total_RMSE = np.sqrt(np.sum(list_RMSE**2) / nb_sensors)
+        total_RMSE = np.sqrt(np.nansum(list_RMSE**2) / nb_sensors)
 
         return np.append(list_RMSE, total_RMSE)
 
@@ -424,8 +422,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         temp_ref = self._T_measures[:, :].T
 
         def compute_energy(temp: np.array):
-            norm = np.linalg.norm(temp - temp_ref)
-            return 0.5 * norm ** 2 / sigma2
+            norm2 = np.nansum((temp - temp_ref)**2)
+            return 0.5 * norm2  / sigma2
 
         def compute_log_acceptance(actual_energy: float, prev_energy: float):
             return prev_energy - actual_energy
@@ -537,8 +535,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         temp_ref = self._T_measures[:, :].T
 
         def compute_energy(temp: np.array, sigma2, sigma2_distrib):
-            norm = np.linalg.norm(temp - temp_ref)
-            return 0.5 * norm ** 2 / sigma2 + np.size(self._T_measures)*np.log(sigma2)/2 - np.log(sigma2_distrib(sigma2))
+            norm2 = np.nansum((temp - temp_ref)**2)
+            return 0.5 * norm2 / sigma2 + np.size(self._T_measures)*np.log(sigma2)/2 - np.log(sigma2_distrib(sigma2))
 
         def compute_log_acceptance(actual_energy: float, prev_energy: float):
             return prev_energy - actual_energy
