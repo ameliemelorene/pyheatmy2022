@@ -74,8 +74,8 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         # dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de débits spécifiques associés au quantile, de longueur les temps de mesure
         self._quantiles_flows = None
         self.lagr = Lagrange(
-            self._real_z, [self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]]
+            np.array(self._real_z), np.array([self._T_riv[0], *
+                           self._T_measures[0], self._T_aq[0]])
         )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
         self.linear = interp1d(self._real_z, [self._T_riv[0],
                                               *self._T_measures[0], self._T_aq[0]])
