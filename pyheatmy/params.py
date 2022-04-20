@@ -14,16 +14,16 @@ PARAM_LIST = (
 Param = namedtuple("Parametres", PARAM_LIST)
 
 
-def cst(x): return 1.
+def cst(x): return 1.#fonction de densité par défaut
 
 
 @dataclass
 class Prior:
     range: tuple
     sigma: float
-    density: Callable[[float], float] = cst
+    density: Callable[[float], float] = cst#Callable est un type de fonction, [float] est la liste des arguments que prend la fonction et float est le type de la sortie de la fonction
 
-    def perturb(self, val):
+    def perturb(self, val):#perturbe la valeur d'un paramètre en respectant le prior
         new_val = val + gauss(0, self.sigma)
         while new_val > self.range[1]:
             new_val -= self.range[1] - self.range[0]
@@ -31,7 +31,7 @@ class Prior:
             new_val += self.range[1] - self.range[0]
         return new_val
 
-    def sample(self):
+    def sample(self):#retourne de manièère uniforme un nombre de l'intervalle
         if self.range[0] > -inf and self.range[1] < inf:
             return uniform(*self.range)
         elif self.range[0] > -inf:
@@ -43,7 +43,7 @@ class Prior:
     
     def __repr__(self) -> str:
         return f"Prior sur une valeure qui évolue entre {self.range[0]} et {self.range[1]}"
-
+#The repr() function returns a printable representational string of the given object.
 
 
 class ParamsPriors:
@@ -94,7 +94,7 @@ if __name__ == '__main__':
             self.zLow = zLow
             self.params = Param(moinslog10K, n, lambda_s, rhos_cs)
 
-        def __repr__(self) -> str:
+        def __repr__(self) -> str:#The repr() function returns a printable representational string of the given object.
             return self.name + f" : ends at {self.zLow} m. " + self.params.__repr__()
         
     def layersListCreator(layersListInput):

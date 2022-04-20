@@ -7,9 +7,8 @@ import sys
 
 import numpy as np
 from tqdm import trange
+from scipy.interpolate import interp1d
 
-#from .lagrange import Lagrange
-from scipy.interpolate import interp1d as Lagrange
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State, StateOld
 from .checker import checker
@@ -38,7 +37,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         # récupère la liste de température de la rivière (au cours du temps)
         self._T_riv = np.array([t for _, (_, t) in dH_measures])
         # récupère la liste de température de l'aquifère (au cours du temps)
-        self._T_aq = np.array([t[-1] - 1 for _, t in T_measures])
+        self._T_aq = np.array([t[-1] for _, t in T_measures])
         # récupère la liste de températures des capteurs (au cours du temps)
         self._T_measures = np.array([t[:-1] for _, t in T_measures])
 
@@ -64,12 +63,32 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         # liste contenant des objets de classe état et de longueur le nombre d'états acceptés par la MCMC (<=nb_iter), passe à un moment par une longueur de 1000 pendant l'initialisation de MCMC
         self._states = None
         self._initial_energies = None
+        self._acceptances = None
         # dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de températures associées au quantile, de longueur les temps de mesure
         self._quantiles_temps = None
         # dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de débits spécifiques associés au quantile, de longueur les temps de mesure
         self._quantiles_flows = None
 
+        self.tests() # teste que les conditions nécessaires à l'analyse sont remplies
+
+    def tests(self):
+
+        # teste que les données sont aux bons formats
+        if np.shape(self._dH) != np.shape(self._T_aq) or (np.shape(self._dH) != np.shape(self._T_riv) or (np.shape(self._T_measures[1]) != (3,))):
+            raise NameError('Problème dans la taille des donées')
+
+        # teste qu'il ne manque pas de données pour les conditions aux limites
+        if np.isnan(np.sum(self._T_aq)):
+            raise NameError('Donnée(s) manquante(s) pour la température aquifère')
+
+        if np.isnan(np.sum(self._T_riv)):
+            raise NameError('Donnée(s) manquante(s) pour la température rivière')
+
+        if np.isnan(np.sum(self._dH)):
+            raise NameError('Donnée(s) manquante(s) pour la pression')
+
     @classmethod
+
     def from_dict(cls, col_dict):
         return cls(**col_dict)
 
@@ -99,13 +118,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        lagr = Lagrange(
-            self._real_z, [self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]]
-        )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
+        f = interp1d(self._real_z, [self._T_riv[0],
+                     *self._T_measures[0], self._T_aq[0]])
 
-        # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
-        T_init = lagr(self._z_solve)
+        T_init = f(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
@@ -160,13 +176,11 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        lagr = Lagrange(
-            self._real_z, [self._T_riv[0], *
-                           self._T_measures[0], self._T_aq[0]]
-        )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
+        f = interp1d(self._real_z, [self._T_riv[0],
+                     *self._T_measures[0], self._T_aq[0]])
 
         # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
-        T_init = lagr(self._z_solve)
+        T_init = f(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
@@ -487,12 +501,12 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         quantile: Union[float, Sequence[float]] = (0.05, 0.5, 0.95),
         verbose=True,  # affiche texte explicatifs ou non
         incertitudes=True,
-        sigma_temp_prior: Prior = Prior((0.01, np.inf), 2, lambda x: 1/x)
+        sigma2_temp_prior: Prior = Prior((0.01, np.inf), 1, lambda x: 1/x)
     ):
         # si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
         if isinstance(quantile, Number):
-            quantile = [quantile]
-
+            quantile = [quantile]      
+        
         def conv(layer):
             name, prof, priors = layer
             if isinstance(priors,dict):
@@ -516,23 +530,24 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         if incertitudes:
             # sigma vaut 1 quand pas d'incertitude sur valeur température
-            def compute_energy(temp: np.array, sigma_obs: float = 1):
+            def compute_energy(temp: np.array, sigma2, sigma2_distrib):
                 # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
                 norm = np.linalg.norm(temp - temp_ref)
-                return 0.5 * (norm / sigma_obs) ** 2 + np.size(self._T_measures)*np.log(sigma_obs)    # énergie definit par 1/2sigma²||T-Tref||²+ln(T)
+                # énergie definit par 1/2sigma²||T-Tref||²+ln(T)
+                return 0.5 * norm ** 2 / sigma2 + np.size(self._T_measures)*np.log(sigma2)/2 - np.log(sigma2_distrib(sigma2))
                 # l'énergie se stabilise quand la chaîne de Markov rentre en régime stationnaire
 
-            def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-                # probabilité d'acceptation
-                return sigma_distrib(actual_sigma)/(sigma_distrib(prev_sigma))*np.exp(prev_energy - actual_energy)
+            def compute_log_acceptance(actual_energy: float, prev_energy: float):
+                # log de la probabilité d'acceptation
+                return prev_energy - actual_energy
         else:
-            def compute_energy(temp: np.array, sigma_obs: float = 1):
+            def compute_energy(temp: np.array, sigma2=1.0, sigma2_distrib=None):
                 # norm = sum(np.linalg.norm(x-y) for x,y in zip(temp,temp_ref))
                 norm = np.linalg.norm(temp - temp_ref)
-                return 0.5 * (norm) ** 2
+                return 0.5 * norm ** 2 / sigma2
 
-            def compute_acceptance(actual_energy: float, prev_energy: float, actual_sigma: float, prev_sigma: float, sigma_distrib):
-                return np.exp(prev_energy - actual_energy)
+            def compute_log_acceptance(actual_energy: float, prev_energy: float):
+                return prev_energy - actual_energy
 
         if verbose:
             print(
@@ -559,55 +574,55 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         for _ in trange(1000, desc="Init Mcmc ", file=sys.stdout):
             # modifié car pas que des lois uniformes maintenant
             init_layers = all_priors.sample()
-            init_sigma_temp = sigma_temp_prior.sample()
+            init_sigma2_temp = sigma2_temp_prior.sample()
             self.compute_solve_transi(init_layers, nb_cells, verbose=False)
 # fait tourner 1000 fois le modèle direct avec les paramètres initiaux
             self._states.append(
                 State(
                     layers=init_layers,
                     energy=compute_energy(
-                        self.temps_solve[ind_ref, :], sigma_obs=init_sigma_temp),
+                        self.temps_solve[ind_ref, :], sigma2=init_sigma2_temp, sigma2_distrib=sigma2_temp_prior.density),
                     ratio_accept=1,
-                    sigma_temp=init_sigma_temp
+                    sigma2_temp=init_sigma2_temp
                 )
             )  # self._states de longueur 1000 à la fin de la boucle for
 
         self._initial_energies = [state.energy for state in self._states]
         # self._states de longueur 1 qu'on prend en état initial, celui qui minimise l'énergie (état stationnaire) de la simulation
         self._states = [min(self._states, key=attrgetter("energy"))]
+        self._acceptance = list()
 
         _temps[0] = self.temps_solve
         _flows[0] = self.flows_solve
         # initalise les températures et les débits spécifiques avec les valeurs obtenues au bout de la dernière simulation de l'état initial
 
+        nb_accepted = 0
+
         # implémentation de la MCMC sur le nombre d'itérations souhaitées
-        for _ in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
+        for i in trange(nb_iter, desc="Mcmc Computation ", file=sys.stdout):
             current_layers = all_priors.perturb(self._states[-1].layers)
-            current_sigma_temp = sigma_temp_prior.perturb(
-                self._states[-1].sigma_temp)
+            current_sigma2_temp = sigma2_temp_prior.perturb(
+                self._states[-1].sigma2_temp)
             self.compute_solve_transi(current_layers, nb_cells, verbose=False)
             energy = compute_energy(
-                self.temps_solve[ind_ref, :], sigma_obs=current_sigma_temp)  # calcule les énergies au niveau des capteurs de températures, pourquoi?
-            ratio_accept = compute_acceptance(
-                energy, self._states[-1].energy, current_sigma_temp, self._states[-1].sigma_temp, sigma_temp_prior.density)  # calcul de la probabilité d'acceptation
-            if random() < ratio_accept:
+                self.temps_solve[ind_ref, :], sigma2=current_sigma2_temp, sigma2_distrib=sigma2_temp_prior.density)  # calcule les énergies au niveau des capteurs de températures, pourquoi?
+            # calcul du log de la probabilité d'acceptation
+            log_ratio_accept = compute_log_acceptance(
+                energy, self._states[-1].energy)
+            if np.log(random()) < log_ratio_accept:
+                nb_accepted += 1
                 self._states.append(
                     State(
                         layers=current_layers,
                         energy=energy,
-                        ratio_accept=ratio_accept,
-                        sigma_temp=current_sigma_temp
+                        ratio_accept=nb_accepted / (i+1),
+                        sigma2_temp=current_sigma2_temp
                     )
                 )  # si décide de conserver le nouvel état (cf cours sur MCMC), on rajoute notre nouvel état au tableau des états
-                _temps[_] = self.temps_solve
-                _flows[_] = self.flows_solve
+                _temps[i] = self.temps_solve
+                _flows[i] = self.flows_solve
                 # on ajoute dans ce cas les nouvelles températures et débits spécifiques à nos tableaux de résultats
-            else:
-                self._states.append(self._states[-1])
-                self._states[-1].ratio_accept = ratio_accept
-                _temps[_] = _temps[_ - 1]
-                _flows[_] = _flows[_ - 1]
-                # si refusé, on recopie l'état précédent, en changeant la probabilité d'acceptation. On conserve les valeurs de températures et débits spécifiques précédents
+            self._acceptance.append(nb_accepted / (i+1))
         # restaure les valeurs par défaut de compute_solve_transi
         self.compute_solve_transi.reset()
 
@@ -650,9 +665,9 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         return [layer.param for layer in min(self._states, key=attrgetter("energy")).layers]  # retourne le couple de paramètres minimisant l'énergie par lequels est passé la MCMC
 
     @ compute_mcmc.needed
-    def get_best_sigma(self):
+    def get_best_sigma2(self):
         """return the best sigma that minimizes the energy"""
-        return min(self._states, key=attrgetter("energy")).sigma_temp
+        return min(self._states, key=attrgetter("energy")).sigma2_temp
 
     @ compute_mcmc.needed
     def get_best_layers(self):
@@ -702,7 +717,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     # erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     @ compute_mcmc.needed
     def get_all_sigma(self):
-        return [state.sigma_temp for state in self._states]
+        return [state.sigma2_temp for state in self._states]
 
     all_sigma = property(get_all_sigma)
 
@@ -713,9 +728,9 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     all_energy = property(get_all_energy)
 
     @ compute_mcmc.needed
-    # retourne toutes les valeurs de probabilité d'acceptation par lesquels est passé la MCMC
+    # retourne toutes les valeurs d'acceptance empirique par lesquels est passée la MCMC
     def get_all_acceptance_ratio(self):
-        return [state.ratio_accept for state in self._states]
+        return self._acceptance
 
     all_acceptance_ratio = property(get_all_acceptance_ratio)
 
@@ -729,4 +744,4 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     @ compute_mcmc.needed
     def get_flows_quantile(self, quantile):
         return self._quantiles_flows[quantile]
-        # retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demandé
+        # retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demand
