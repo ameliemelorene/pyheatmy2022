@@ -69,7 +69,26 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         # dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de débits spécifiques associés au quantile, de longueur les temps de mesure
         self._quantiles_flows = None
 
+        self.tests() # teste que les conditions nécessaires à l'analyse sont remplies
+
+    def tests(self):
+
+        # teste que les données sont aux bons formats
+        if np.shape(self._dH) != np.shape(self._T_aq) or (np.shape(self._dH) != np.shape(self._T_riv) or (np.shape(self._T_measures[1]) != (3,))):
+            raise NameError('Problème dans la taille des donées')
+
+        # teste qu'il ne manque pas de données pour les conditions aux limites
+        if np.isnan(np.sum(self._T_aq)):
+            raise NameError('Donnée(s) manquante(s) pour la température aquifère')
+
+        if np.isnan(np.sum(self._T_riv)):
+            raise NameError('Donnée(s) manquante(s) pour la température rivière')
+
+        if np.isnan(np.sum(self._dH)):
+            raise NameError('Donnée(s) manquante(s) pour la pression')
+
     @classmethod
+
     def from_dict(cls, col_dict):
         return cls(**col_dict)
 
