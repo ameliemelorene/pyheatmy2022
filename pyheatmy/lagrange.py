@@ -48,7 +48,7 @@ class Lagrange():
         if len(index) == 0 :
             return n_evaluate(self.x,self.w,self.y,point)
         else :    
-            return self.y[np.where(self.x == point)]
+            return self.y[index][0]
     
             
 
@@ -56,8 +56,8 @@ if __name__ == '__main__':
     x = np.array([1,2,3])
     y = np.array([0,5,1.1])
     L = Lagrange(x,y)
-    print(L(1))
-    print(y[np.where(x == 4)])
+    #print(L(1))
+    print(y[np.where(x == 2)][0])
     print("Initialisation Numba")
     print(timeit.timeit("Lagrange(x,y)", globals=globals()))
     print("Evaluation Numba")

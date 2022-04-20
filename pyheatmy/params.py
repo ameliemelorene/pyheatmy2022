@@ -31,7 +31,7 @@ class Prior:
             new_val += self.range[1] - self.range[0]
         return new_val
 
-    def sample(self):#retourne de manièère uniforme un nombre de l'intervalle
+    def sample(self):#retourne de manière uniforme un nombre de l'intervalle
         if self.range[0] > -inf and self.range[1] < inf:
             return uniform(*self.range)
         elif self.range[0] > -inf:
