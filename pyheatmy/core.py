@@ -505,11 +505,20 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     ):
         # si quantile est de type nombre, le transforme en liste, vérifier les histoires de type avec Union[float, Sequence[float]] tout de même
         if isinstance(quantile, Number):
-            quantile = [quantile]
+            quantile = [quantile]      
+        
+        def conv(layer):
+            name, prof, priors = layer
+            if isinstance(priors,dict):
+                return (name, prof, 
+            [Prior(*args) for args in (priors[lbl]
+                                       for lbl in PARAM_LIST)])      
+            else:
+                return layer
 
         if not isinstance(all_priors, AllPriors):
             all_priors = AllPriors(
-                [LayerPriors(*args) for args in (layer for layer in all_priors)])
+                [LayerPriors(*conv(args)) for args in (layer for layer in all_priors)])
 
         dz = self._real_z[-1] / nb_cells  # profondeur d'une cellule
         _z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
@@ -735,4 +744,4 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     @ compute_mcmc.needed
     def get_flows_quantile(self, quantile):
         return self._quantiles_flows[quantile]
-        # retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demandé
+        # retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demand
