@@ -9,6 +9,9 @@ import numpy as np
 from tqdm import trange
 from scipy.interpolate import interp1d
 
+
+from scipy.interpolate import interp1d
+from .lagrange import Lagrange
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State, StateOld
 from .checker import checker
@@ -29,6 +32,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         T_measures: list,  # liste contenant un tuple avec la date et la température aux points de mesure de longueur le nombre de temps mesuré
         sigma_meas_P: float,  # écart type de l'incertitude sur les valeurs de pression capteur
         sigma_meas_T: float,  # écart type de l'incertitude sur les valeurs de température capteur
+        inter_mode : str = 'lagrange', # mode d'interpolation du profil de température initial : 'lagrange' ou 'linear'
     ):
         # ! Pour l'instant on suppose que les temps matchent
         self._times = [t for t, _ in dH_measures]
@@ -68,7 +72,14 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         self._quantiles_temps = None
         # dictionnaire indexé par les quantiles (0.05,0.5,0.95) à qui on a associe un array de deux dimensions : dimension 1 les profondeurs, dimension 2 : liste des valeurs de débits spécifiques associés au quantile, de longueur les temps de mesure
         self._quantiles_flows = None
-
+        self.lagr = Lagrange(
+            self._real_z, [self._T_riv[0], *
+                           self._T_measures[0], self._T_aq[0]]
+        )  # crée le polynome interpolateur de lagrange faisant coincider les températures connues à la profondeur réelle
+        self.linear = interp1d(self._real_z, [self._T_riv[0],
+                     *self._T_measures[0], self._T_aq[0]])
+        # crée la fonction affine par morceaux faisant coincider les températures connues à la profondeur réelle
+        self.inter_mode = inter_mode
         self.tests() # teste que les conditions nécessaires à l'analyse sont remplies
 
     def tests(self):
@@ -125,10 +136,11 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
-        f = interp1d(self._real_z, [self._T_riv[0],
-                     *self._T_measures[0], self._T_aq[0]])
-
-        T_init = f(self._z_solve)
+        # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
+        if self.inter_mode == 'lagrange':  
+          T_init = [self.lagr(z) for z in self._z_solve]
+        elif self.inter_mode == 'linear':  
+          T_init = f(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 
@@ -182,12 +194,12 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         # fixe toutes les charges de l'aquifère à 0 (à tout temps)
         H_aq = np.zeros(len(self._times))
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
+# crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
 
-        f = interp1d(self._real_z, [self._T_riv[0],
-                     *self._T_measures[0], self._T_aq[0]])
-
-        # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
-        T_init = f(self._z_solve)
+        if self.inter_mode == 'lagrange':  
+          T_init = [self.lagr(z) for z in self._z_solve]
+        elif self.inter_mode == 'linear':  
+          T_init = f(self._z_solve)
         T_riv = self._T_riv
         T_aq = self._T_aq
 

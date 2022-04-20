@@ -1,7 +1,7 @@
 from timeit import timeit
 import numpy as np
 import timeit
-from numba import njit
+from numba import njit, guvectorize
 from scipy.interpolate import interp1d,lagrange,BarycentricInterpolator
 
 
@@ -18,6 +18,8 @@ def n_barycentric(x):
     w = np.array([1/np.prod(diff[i,:]) for i in range(n)])
     return w
 
+#@guvectorize(["void(float64[:], float64[:], float64[:], float64[:])"],
+#             "(n),(n),(n),(m)->(m)")
 @njit
 def n_evaluate(x,w,y,point):
     """évalue le polynome interpollateur au point P, les poids w_i précedemment calculés sont nécessaires"""
@@ -38,22 +40,29 @@ class Lagrange():
         plus rapide que de recréer l'objet et recalculer les mêmes poids w_i"""
         self.y = y
 
-    def __call__(self,point):
+    def call(self,point):
         return n_evaluate(self.x,self.w,self.y,point)
+
+    def __call__(self,point):
+        index = np.where(self.x == point)
+        if len(index) == 0 :
+            return n_evaluate(self.x,self.w,self.y,point)
+        else :    
+            return self.y[np.where(self.x == point)]
+    
+            
 
 if __name__ == '__main__':
     x = np.array([1,2,3])
     y = np.array([0,5,1.1])
     L = Lagrange(x,y)
+    print(L(1))
+    print(y[np.where(x == 4)])
     print("Initialisation Numba")
     print(timeit.timeit("Lagrange(x,y)", globals=globals()))
     print("Evaluation Numba")
     print(timeit.timeit("L(1.2)", globals=globals()))
-    print("Initialisation Barycentric")
-    print(timeit.timeit("BarycentricInterpolator(x,y)", globals=globals()))
-    b = BarycentricInterpolator(x,y)
-    print("Evaluation")
-    print(timeit.timeit("b(1.2)", globals=globals()))
+  
     print("Initialisation interp1d")
     print(timeit.timeit("interp1d(x,y)", globals=globals()))
     i = interp1d(x,y)
@@ -64,3 +73,9 @@ if __name__ == '__main__':
     l = lagrange(x,y)
     print("Evaluation")
     print(timeit.timeit("l(1.2)", globals=globals()))
+
+    print("Initialisation Barycentric")
+    print(timeit.timeit("BarycentricInterpolator(x,y)", globals=globals()))
+    b = BarycentricInterpolator(x,y)
+    print("Evaluation")
+    print(timeit.timeit("b(1.2)", globals=globals()))
