@@ -11,11 +11,12 @@ class StateOld:
     params: Param
     energy: float
     ratio_accept: float
-    sigma_temp : float = None
+    sigma2_temp: float = None
+
 
 @dataclass
 class State:
     layers: Sequence[Layer]
     energy: float
     ratio_accept: float
-    sigma_temp : float
+    sigma2_temp: float
