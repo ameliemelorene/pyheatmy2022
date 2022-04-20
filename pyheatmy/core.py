@@ -8,8 +8,8 @@ import sys
 import numpy as np
 from tqdm import trange
 
-#from .lagrange import Lagrange
 from scipy.interpolate import interp1d as Lagrange
+from .lagrange import Lagrange
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State, StateOld
 from .checker import checker
@@ -104,7 +104,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
         # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
-        T_init = self.lagr(self._z_solve)
+        T_init = [self.lagr(z) for z in self._z_solve]
         T_riv = self._T_riv
         T_aq = self._T_aq
 
@@ -160,7 +160,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         H_riv = self._dH  # self.dH contient déjà les charges de la rivière à tout temps, stocke juste dans une variable locale
 
         # crée les températures initiales (t=0) sur toutes les profondeurs (milieu des cellules)
-        T_init = self.lagr(self._z_solve)
+        T_init = [self.lagr(z) for z in self._z_solve]
         T_riv = self._T_riv
         T_aq = self._T_aq
 
