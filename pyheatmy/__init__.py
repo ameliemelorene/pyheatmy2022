@@ -19,4 +19,5 @@ from .params import Param
 from .checker import ComputationOrderException
 from .layers import layersListCreator
 from .gen_test import Time_series
+from .lagrange import Lagrange
 #from .val_direct import valdirect
