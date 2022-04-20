@@ -664,7 +664,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     @ compute_mcmc.needed
     def get_best_param(self):
         """return the params that minimize the energy"""
-        return [layer.param for layer in min(self._states, key=attrgetter("energy")).layers]  # retourne le couple de paramètres minimisant l'énergie par lequels est passé la MCMC
+        return [layer.params for layer in min(self._states, key=attrgetter("energy")).layers]  # retourne le couple de paramètres minimisant l'énergie par lequels est passé la MCMC
 
     @ compute_mcmc.needed
     def get_best_sigma2(self):
