@@ -6,6 +6,7 @@ from numbers import Number
 import sys
 
 import numpy as np
+from pkg_resources import get_entry_map
 from tqdm import trange
 from scipy.interpolate import interp1d
 
@@ -33,7 +34,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         sigma_meas_P: float,  # écart type de l'incertitude sur les valeurs de pression capteur
         sigma_meas_T: float,  # écart type de l'incertitude sur les valeurs de température capteur
         # mode d'interpolation du profil de température initial : 'lagrange' ou 'linear'
-        inter_mode: str = 'lagrange',
+        inter_mode: str = 'linear',
     ):
         # ! Pour l'instant on suppose que les temps matchent
         self._times = [t for t, _ in dH_measures]
@@ -295,7 +296,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         nb_times = len(self._T_measures)
 
         # Array of RMSE for each sensor
-        list_RMSE = np.array([np.sqrt(np.sum((self.temps_solve[id, :] - temps_obs)**2) / nb_times)
+        list_RMSE = np.array([np.sqrt(np.sum((self.get_temps_solve()[id, :] - temps_obs)**2) / nb_times)
                              for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
 
         # Total RMSE
@@ -748,3 +749,20 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     def get_flows_quantile(self, quantile):
         return self._quantiles_flows[quantile]
         # retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demand
+
+    @ compute_mcmc.needed
+    def get_RMSE_quantile(self, quantile):
+        # Number of sensors (except boundary conditions : river and aquifer)
+        nb_sensors = len(self._T_measures[0])
+
+        # Number of times for which we have measures
+        nb_times = len(self._T_measures)
+
+        # Array of RMSE for each sensor
+        list_RMSE = np.array([np.sqrt(np.nansum((self.get_temps_quantile(quantile)[id, :] - temps_obs)**2) / nb_times)
+                             for id, temps_obs in zip(self.get_id_sensors(), self._T_measures.T)])
+
+        # Total RMSE
+        total_RMSE = np.sqrt(np.sum(list_RMSE**2) / nb_sensors)
+
+        return np.append(list_RMSE, total_RMSE)
