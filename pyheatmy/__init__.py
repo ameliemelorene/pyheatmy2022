@@ -17,6 +17,6 @@ CODE_scalar = -9999
 from .core import Column
 from .params import Param
 from .checker import ComputationOrderException
-from .layers import layersListCreator
+from .layers import layersListCreator, Layer
 from .gen_test import Time_series
-#from .val_direct import valdirect
+from .val_analy import Analy_Sol

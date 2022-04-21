@@ -32,6 +32,7 @@ class Time_series:  # on simule un tableau de mesures
         self._real_z = np.array([0] + depth_sensors) + offset
 
         self._dates = np.array([None])
+        self._time_array = np.array([None])
         # le tableau d'observation des charges utilisable dans colonne
         self._dH = np.array([None])
         self._dH_perturb = np.array([None]) # avec perturbation
@@ -59,13 +60,19 @@ class Time_series:  # on simule un tableau de mesures
     def _generate_dates_series(self, n_len_times = 2000, t_step = DEFAULT_time_step):
         if self._param_dates[0] == None :
             self._dates = np.array([datetime.fromtimestamp(t_step*k) for k in range(n_len_times)])
+            self._time_array = np.array([t_step*k for k in range(n_len_times)])
         else :
             dt, end, step = datetime(*self._param_dates[0]), datetime(*self._param_dates[1]), timedelta(seconds=self._param_dates[2])
             times_vir1 = []
+            times_list = []
+            S = 0
             while dt < end:
                 times_vir1.append(dt)
                 dt += step
+                times_list.append(S)
+                S += self._param_dates[2]
             self._dates = np.array(times_vir1)
+            self._time_array = np.array(times_list)
     
     def _generate_dH_series(self):
         t_range = np.arange(len(self._dates))*self._param_dates[2]
