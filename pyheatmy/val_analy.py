@@ -3,7 +3,7 @@ from typing import Sequence
 
 from pyheatmy.core import Column
 from pyheatmy.gen_test import Time_series
-from pyheatmy.layers import Layer
+from pyheatmy.layers import Layer, layersListCreator
 from pyheatmy import LAMBDA_W, RHO_W, C_W
 
 class Analy_Sol:
@@ -21,6 +21,7 @@ class Analy_Sol:
         self._nb_cells = nb_cells
         self._dz = self._real_z_sensors[-1] / self._nb_cells
         self._z_solve = self._dz/2 + np.array([k*self._dz for k in range(self._nb_cells)])
+        self._id_sensors = [np.argmin(np.abs(z - self._z_solve)) for z in column_exp._real_z[1:-1]]
 
         self._real_t = time_series._time_array
         self._dH = time_series._param_dH[2]
@@ -65,10 +66,38 @@ class Analy_Sol:
         self.compute_b()
         self.analy_temp_general = np.zeros((self._nb_cells,len(self._real_t)))
         for i, t in enumerate(self._real_t) :      
-            self.analy_temp_general[:,i] = self._T_moy + self._amp_T_river*np.exp(-self._a*self._z_solve)*np.cos(2*np.pi*t/self._period - self._b*self._z_solve)
+            self.analy_temp_general[:,i] = self._T_moy + self._amp_T_river*np.exp(-self._a*self._z_solve)*np.sin(2*np.pi*t/self._period - self._b*self._z_solve)
 
 
     def compute_temp_cond(self):
         self.analy_temp_cond = np.zeros((self._nb_cells,len(self._real_t)))
         for i, t in enumerate(self._real_t) : 
-            self.analy_temp_cond[:,i] = self._T_moy + self._amp_T_river*np.exp(-self._a_cond*self._z_solve)*np.cos(2*np.pi*t/self._period - self._a_cond*self._z_solve)
+            self.analy_temp_cond[:,i] = self._T_moy + self._amp_T_river*np.exp(-self._a_cond*self._z_solve)*np.sin(2*np.pi*t/self._period - self._a_cond*self._z_solve)
+
+            
+    def generate_RMSE_analytical(self, time_series, column, monolayer): #column défini à partir de time_series
+        """This function computes the RMSE of the direct model compared to analytical solutions on simple boundary
+        conditions and in a monolayer case"""
+        layer_list=layersListCreator([(monolayer.name, monolayer.zLow,*monolayer.params)])
+        
+        nb_sensors = len(self._id_sensors) # Number of sensors (except boundary conditions : river and aquifer)
+        nb_times = len(time_series._time_array)   # Number of times for which we have measures
+        if self.analy_temp_general.any()==None :
+            self.compute_temp_general()
+        #pour les solutions modèle direct, il faut une condition initiale égale à celle du modèle analytique
+        
+        time_series._T_Shaft[0]=np.array([self.analy_temp_general[id_sens,0] for id_sens in self._id_sensors] + [self.analy_temp_cond[-1,0]])  
+        column._T_measures[0]=time_series._T_Shaft[0][:-1]
+        time_series._measures_column_one_layer(column, layer_list, self._nb_cells)
+
+        self.temp_shaft_analy = np.zeros((nb_times,nb_sensors))
+        for i,id_sens in enumerate(self._id_sensors):
+            self.temp_shaft_analy[:,i]=self.analy_temp_general[id_sens,:] #ne contient pas la boundary condition aquifer
+        # Array of RMSE for each sensor
+        list_RMSE = np.array([np.sqrt(np.sum(self.temp_shaft_analy[:,i] - time_series._T_Shaft[:,i])**2) / nb_times
+                             for i in range(nb_sensors)])
+
+        # Total RMSE
+        total_RMSE = np.sqrt(np.sum(list_RMSE**2) / nb_sensors)
+
+        return np.append(list_RMSE, total_RMSE)
