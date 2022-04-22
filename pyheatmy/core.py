@@ -7,7 +7,7 @@ import sys
 
 import numpy as np
 from tqdm import trange
-from scipy.interpolate import interp1d #lagrange
+from scipy.interpolate import interp1d, lagrange
 
 from .params import Param, ParamsPriors, Prior, PARAM_LIST
 from .state import State
