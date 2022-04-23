@@ -154,6 +154,8 @@ class Time_series:  # on simule un tableau de mesures
         id_sensors = column.get_id_sensors()
         for i in range(len(id_sensors)):
             self._T_Shaft[1:,i] = column._temps[id_sensors[i],1:] # maj les températures émulée des capteurs à partir de t>0 (ie t=1)
+            if i < len(id_sensors) :
+                column._T_measures[:,i] = column._temps[id_sensors[i],:]
         self._generate_Shaft_Temp_series()
     
 
