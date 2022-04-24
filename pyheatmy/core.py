@@ -489,7 +489,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             _flows[i] = self.get_flows_solve()
             self._acceptance[i] = nb_accepted / (i+1)
 
-        self.compute_solve_transi.reset()
+        # self.compute_solve_transi.reset()
 
         self._quantiles_temps = {
             quant: res
@@ -607,7 +607,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             _flows[i] = self.get_flows_solve()
             self._acceptance[i] = nb_accepted / (i+1)
 
-        self.compute_solve_transi.reset()
+        # self.compute_solve_transi.reset()
 
         self._quantiles_temps = {
             quant: res
