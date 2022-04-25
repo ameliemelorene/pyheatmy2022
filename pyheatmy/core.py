@@ -346,7 +346,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
             RHO_W
             * C_W
             * self._flows
-            * self.temps_solve
+            * (self.temps_solve - 273.15)
         )
     advec_flows_solve = property(get_advec_flows_solve)
 # récupération des flux advectifs = masse volumnique*capacité calorifique*débit spécifique*température
@@ -411,9 +411,18 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         if isinstance(quantile, Number):
             quantile = [quantile]
 
+        def conv(layer):
+            name, prof, priors = layer
+            if isinstance(priors, dict):
+                return (name, prof,
+                        [Prior(*args) for args in (priors[lbl]
+                                                   for lbl in PARAM_LIST)])
+            else:
+                return layer
+
         if not isinstance(all_priors, AllPriors):
             all_priors = AllPriors(
-                [LayerPriors(*args) for args in (layer for layer in all_priors)])
+                [LayerPriors(*conv(layer)) for layer in all_priors])
 
         dz = self._real_z[-1] / nb_cells
         _z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
@@ -526,7 +535,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         if not isinstance(all_priors, AllPriors):
             all_priors = AllPriors(
-                [LayerPriors(*conv(args)) for args in (layer for layer in all_priors)])
+                [LayerPriors(*conv(layer)) for layer in all_priors])
 
         dz = self._real_z[-1] / nb_cells
         _z_solve = dz/2 + np.array([k*dz for k in range(nb_cells)])
