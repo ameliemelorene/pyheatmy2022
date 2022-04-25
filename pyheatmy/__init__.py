@@ -15,7 +15,7 @@ CODE_list_sensors = [.1,.2,.3,.4]
 CODE_scalar = -9999
 
 from .core import Column
-from .params import Param
+from .params import Param, Prior
 from .checker import ComputationOrderException
 from .layers import layersListCreator, Layer
 from .gen_test import Time_series

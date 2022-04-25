@@ -1,4 +1,5 @@
-from numpy import float32, full, zeros
+from numpy import float32, full, zeros, indices
+from numpy.linalg import solve
 from numba import njit
 
 from .solver import solver, tri_product
@@ -120,8 +121,20 @@ def compute_T(
         upper_diagonal[0] = - 4*ke*(1-alpha)/(3*dz**2) - \
             (2*(1-alpha)*ae/(3*dz)) * nablaH[0, j]
 
-        T_res[:, j+1] = solver(lower_diagonal, diagonal,
-                               upper_diagonal, B_fois_T_plus_c)
+        try:
+            T_res[:, j+1] = solver(lower_diagonal, diagonal,
+                                   upper_diagonal, B_fois_T_plus_c)
+        except Exception:
+            A = zeros((n_cell, n_cell), float32)
+            A[0, 0] = diagonal[0]
+            A[0, 1] = upper_diagonal[0]
+            for i in range(1, n_cell - 1):
+                A[i, i-1] = lower_diagonal[i-1]
+                A[i, i] = diagonal[i]
+                A[i, i+1] = upper_diagonal[i]
+            A[n_cell - 1, n_cell - 1] = diagonal[n_cell - 1]
+            A[n_cell - 1, n_cell - 2] = lower_diagonal[n_cell - 2]
+            T_res[:, j+1] = solve(A, B_fois_T_plus_c)
 
     return T_res
 
@@ -365,8 +378,20 @@ def compute_T_stratified(
         upper_diagonal[0] = - 4*ke_list[0]*(1-alpha)/(3*dz**2) - \
             (2*(1-alpha)*ae_list[0]/(3*dz)) * nablaH[0, j]
 
-        T_res[:, j+1] = solver(lower_diagonal, diagonal,
-                               upper_diagonal, B_fois_T_plus_c)
+        try:
+            T_res[:, j+1] = solver(lower_diagonal, diagonal,
+                                   upper_diagonal, B_fois_T_plus_c)
+        except Exception:
+            A = zeros((n_cell, n_cell), float32)
+            A[0, 0] = diagonal[0]
+            A[0, 1] = upper_diagonal[0]
+            for i in range(1, n_cell - 1):
+                A[i, i-1] = lower_diagonal[i-1]
+                A[i, i] = diagonal[i]
+                A[i, i+1] = upper_diagonal[i]
+            A[n_cell - 1, n_cell - 1] = diagonal[n_cell - 1]
+            A[n_cell - 1, n_cell - 2] = lower_diagonal[n_cell - 2]
+            T_res[:, j+1] = solve(A, B_fois_T_plus_c)
 
     return T_res
 
