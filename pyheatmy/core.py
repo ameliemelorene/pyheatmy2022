@@ -782,9 +782,17 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         n_sens = len(self.depth_sensors)-1
         dz = self._real_z[-1] / nb_cells
 
+        """Changement de l'échelle de l'axe x"""
+        def min2jour(x):
+            return x / (4*24)
+
+        def jour2min(x):
+            return x * (4*24)
+
         """Plots des profils de température"""
 
         fig, ax = plt.subplots(2,3, sharey=False, figsize = (22, 14))
+        plt.subplots_adjust(wspace=0.3, hspace=0.3)
         fig.suptitle("Résultats calcul : simulateur de données",fontsize = fontsize+6)
         ax[0,0].plot(self._T_riv[:nt][:nt]-K_offset, label="Triv")
         for i in range(n_sens):
@@ -792,13 +800,15 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         ax[0,0].plot(self._T_aq[:nt]-K_offset, label="Taq")
         ax[0,0].legend(fontsize = fontsize)
         ax[0,0].grid()
-        ax[0,0].set_xlabel("t",fontsize = fontsize)
+        ax[0,0].set_xlabel("t (15min)",fontsize = fontsize)
         ax[0,0].set_ylabel("T (°C)",fontsize = fontsize)
+        ax[0,0].secax = ax[0,0].secondary_xaxis('top', functions=(min2jour, jour2min))
+        ax[0,0].secax.set_xlabel('t (jour)') 
         ax[0,0].set_title("Température mesurées",fontsize = fontsize)
 
         for i in range(nt):
             ax[0,1].plot(self._temps[:nt,i]-K_offset, -self._z_solve)
-        ax[0,1].set_ylabel("depth",fontsize = fontsize)
+        ax[0,1].set_ylabel("depth (m)",fontsize = fontsize)
         ax[0,1].set_xlabel("T (°C)",fontsize = fontsize)
         ax[0,1].grid()
         ax[0,1].set_title("Evolution du profil de température",fontsize = fontsize)
@@ -806,29 +816,37 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         """Plots des frises"""
 
         im0 = ax[0,2].imshow(self._temps[:,:nt]-K_offset, aspect='auto', cmap='Spectral_r')
-        ax[0,2].set_xlabel("t",fontsize = fontsize)
+        ax[0,2].set_xlabel("t (15min)",fontsize = fontsize)
         ax[0,2].set_ylabel("z (m)",fontsize = fontsize)
+        ax[0,2].secax = ax[0,2].secondary_xaxis('top', functions=(min2jour, jour2min))
+        ax[0,2].secax.set_xlabel('t (jour)') 
         cbar0 = fig.colorbar(im0, ax=ax[0, 2], shrink=1,location='right')
         cbar0.set_label('Température (°C)',fontsize = fontsize)
         ax[0,2].set_title("Frise température MD",fontsize = fontsize)
 
         im1 = ax[1,0].imshow(self.get_conduc_flows_solve()[:,:nt], aspect='auto', cmap='Spectral_r')
-        ax[1,0].set_xlabel("t",fontsize = fontsize)
+        ax[1,0].set_xlabel("t (15min)",fontsize = fontsize)
         ax[1,0].set_ylabel("z (m)",fontsize = fontsize)
+        ax[1,0].secax = ax[1,0].secondary_xaxis('top', functions=(min2jour, jour2min))
+        ax[1,0].secax.set_xlabel('t (jour)') 
         cbar1 = fig.colorbar(im1, ax=ax[1, 0], shrink=1,location='right')
         cbar1.set_label('Flux conductif (W/m²)',fontsize = fontsize)
         ax[1,0].set_title("Frise Flux conductif MD",fontsize = fontsize)
 
         im2 = ax[1,1].imshow(self.get_advec_flows_solve()[:,:nt], aspect='auto', cmap='Spectral_r')
-        ax[1,1].set_xlabel("t",fontsize = fontsize)
+        ax[1,1].set_xlabel("t (15min)",fontsize = fontsize)
         ax[1,1].set_ylabel("z (m)",fontsize = fontsize)
+        ax[1,1].secax = ax[1,1].secondary_xaxis('top', functions=(min2jour, jour2min))
+        ax[1,1].secax.set_xlabel('t (jour)') 
         cbar2 = fig.colorbar(im2, ax=ax[1, 1], shrink=1,location='right')
-        cbar2.set_label('Flux conductif (W/m²)',fontsize = fontsize)
+        cbar2.set_label('Flux advectif (W/m²)',fontsize = fontsize)
         ax[1,1].set_title("Frise Flux advectif MD",fontsize = fontsize)
 
         im3 = ax[1,2].imshow(self.get_flows_solve()[:,:nt], aspect='auto', cmap='Spectral_r')
-        ax[1,2].set_xlabel("t",fontsize = fontsize)
+        ax[1,2].set_xlabel("t (15min)",fontsize = fontsize)
         ax[1,2].set_ylabel("z (m)",fontsize = fontsize)
+        ax[1,2].secax = ax[1,2].secondary_xaxis('top', functions=(min2jour, jour2min))
+        ax[1,2].secax.set_xlabel('t (jour)') 
         cbar3 = fig.colorbar(im3, ax=ax[1, 2], shrink=1,location='right')
         cbar3.set_label('water flow (m/s)',fontsize = fontsize)
         ax[1,2].set_title("Frise Flux d'eau MD",fontsize = fontsize)
