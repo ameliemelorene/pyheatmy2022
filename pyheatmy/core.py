@@ -692,9 +692,11 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         n_layers = len(self._layersList)
         n_params = len(self._layersList[0].params)
         n_states = len(self._states)
-        res = np.array([[layer.params for layer in state.layers]
-                       for state in self._states])
-        return np.reshape(res, (n_layers, n_states, n_params))
+        res = np.empty((n_layers, n_states, n_params))
+        for i in range(n_layers):
+            for j, state in enumerate(self._states):
+                res[i][j] = np.array(state.layers[i].params)
+        return res
 
     all_params = property(get_all_params)
 
