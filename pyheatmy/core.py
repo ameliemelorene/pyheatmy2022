@@ -689,8 +689,12 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     # erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     @ compute_mcmc.needed
     def get_all_params(self):
-        # retourne tous les couples de paramètres par lesquels est passé la MCMC
-        return [[layer.params for layer in state.layers] for state in self._states]
+        n_layers = len(self._layersList)
+        n_params = len(self._layersList[0].params)
+        n_states = len(self._states)
+        res = np.array([[layer.params for layer in state.layers]
+                       for state in self._states])
+        return np.reshape(res, (n_layers, n_states, n_params))
 
     all_params = property(get_all_params)
 
@@ -746,6 +750,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
     all_acceptance_ratio = property(get_all_acceptance_ratio)
 
+    @ compute_mcmc.needed
+    def get_quantiles(self):
+        return self._quantiles_temps.keys()
+
     # erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     @ compute_mcmc.needed
     def get_temps_quantile(self, quantile):
@@ -756,7 +764,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     @ compute_mcmc.needed
     def get_flows_quantile(self, quantile):
         return self._quantiles_flows[quantile]
-      
+
     @ compute_mcmc.needed
     def get_RMSE_quantile(self, quantile):
         # Number of sensors (except boundary conditions : river and aquifer)
@@ -774,9 +782,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         return np.append(list_RMSE, total_RMSE)
 
-    def plot_CALC_results(self, nt=3000, fontsize = 15):
-        
-        time_array = np.array([(self._times[j+1] - self._times[j]).total_seconds() for j in range(len(self._times) - 1)])
+    def plot_CALC_results(self, nt=3000, fontsize=15):
+
+        time_array = np.array([(self._times[j+1] - self._times[j]).total_seconds()
+                              for j in range(len(self._times) - 1)])
         K_offset = 273.15
         nb_cells = len(self._z_solve)
         n_sens = len(self.depth_sensors)-1
@@ -784,52 +793,59 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         """Plots des profils de température"""
 
-        fig, ax = plt.subplots(2,3, sharey=False, figsize = (22, 14))
-        fig.suptitle("Résultats calcul : simulateur de données",fontsize = fontsize+6)
-        ax[0,0].plot(self._T_riv[:nt][:nt]-K_offset, label="Triv")
+        fig, ax = plt.subplots(2, 3, sharey=False, figsize=(22, 14))
+        fig.suptitle("Résultats calcul : simulateur de données",
+                     fontsize=fontsize+6)
+        ax[0, 0].plot(self._T_riv[:nt][:nt]-K_offset, label="Triv")
         for i in range(n_sens):
-            ax[0,0].plot(self._T_measures[:nt,i]-K_offset, label="T{}".format(i+1))
-        ax[0,0].plot(self._T_aq[:nt]-K_offset, label="Taq")
-        ax[0,0].legend(fontsize = fontsize)
-        ax[0,0].grid()
-        ax[0,0].set_xlabel("t",fontsize = fontsize)
-        ax[0,0].set_ylabel("T (°C)",fontsize = fontsize)
-        ax[0,0].set_title("Température mesurées",fontsize = fontsize)
+            ax[0, 0].plot(self._T_measures[:nt, i] -
+                          K_offset, label="T{}".format(i+1))
+        ax[0, 0].plot(self._T_aq[:nt]-K_offset, label="Taq")
+        ax[0, 0].legend(fontsize=fontsize)
+        ax[0, 0].grid()
+        ax[0, 0].set_xlabel("t", fontsize=fontsize)
+        ax[0, 0].set_ylabel("T (°C)", fontsize=fontsize)
+        ax[0, 0].set_title("Température mesurées", fontsize=fontsize)
 
         for i in range(nt):
-            ax[0,1].plot(self._temps[:nt,i]-K_offset, -self._z_solve)
-        ax[0,1].set_ylabel("depth",fontsize = fontsize)
-        ax[0,1].set_xlabel("T (°C)",fontsize = fontsize)
-        ax[0,1].grid()
-        ax[0,1].set_title("Evolution du profil de température",fontsize = fontsize)
+            ax[0, 1].plot(self._temps[:nt, i]-K_offset, -self._z_solve)
+        ax[0, 1].set_ylabel("depth", fontsize=fontsize)
+        ax[0, 1].set_xlabel("T (°C)", fontsize=fontsize)
+        ax[0, 1].grid()
+        ax[0, 1].set_title(
+            "Evolution du profil de température", fontsize=fontsize)
 
         """Plots des frises"""
 
-        im0 = ax[0,2].imshow(self._temps[:,:nt]-K_offset, aspect='auto', cmap='Spectral_r')
-        ax[0,2].set_xlabel("t",fontsize = fontsize)
-        ax[0,2].set_ylabel("z (m)",fontsize = fontsize)
-        cbar0 = fig.colorbar(im0, ax=ax[0, 2], shrink=1,location='right')
-        cbar0.set_label('Température (°C)',fontsize = fontsize)
-        ax[0,2].set_title("Frise température MD",fontsize = fontsize)
+        im0 = ax[0, 2].imshow(self._temps[:, :nt]-K_offset,
+                              aspect='auto', cmap='Spectral_r')
+        ax[0, 2].set_xlabel("t", fontsize=fontsize)
+        ax[0, 2].set_ylabel("z (m)", fontsize=fontsize)
+        cbar0 = fig.colorbar(im0, ax=ax[0, 2], shrink=1, location='right')
+        cbar0.set_label('Température (°C)', fontsize=fontsize)
+        ax[0, 2].set_title("Frise température MD", fontsize=fontsize)
 
-        im1 = ax[1,0].imshow(self.get_conduc_flows_solve()[:,:nt], aspect='auto', cmap='Spectral_r')
-        ax[1,0].set_xlabel("t",fontsize = fontsize)
-        ax[1,0].set_ylabel("z (m)",fontsize = fontsize)
-        cbar1 = fig.colorbar(im1, ax=ax[1, 0], shrink=1,location='right')
-        cbar1.set_label('Flux conductif (W/m²)',fontsize = fontsize)
-        ax[1,0].set_title("Frise Flux conductif MD",fontsize = fontsize)
+        im1 = ax[1, 0].imshow(self.get_conduc_flows_solve()[
+                              :, :nt], aspect='auto', cmap='Spectral_r')
+        ax[1, 0].set_xlabel("t", fontsize=fontsize)
+        ax[1, 0].set_ylabel("z (m)", fontsize=fontsize)
+        cbar1 = fig.colorbar(im1, ax=ax[1, 0], shrink=1, location='right')
+        cbar1.set_label('Flux conductif (W/m²)', fontsize=fontsize)
+        ax[1, 0].set_title("Frise Flux conductif MD", fontsize=fontsize)
 
-        im2 = ax[1,1].imshow(self.get_advec_flows_solve()[:,:nt], aspect='auto', cmap='Spectral_r')
-        ax[1,1].set_xlabel("t",fontsize = fontsize)
-        ax[1,1].set_ylabel("z (m)",fontsize = fontsize)
-        cbar2 = fig.colorbar(im2, ax=ax[1, 1], shrink=1,location='right')
-        cbar2.set_label('Flux conductif (W/m²)',fontsize = fontsize)
-        ax[1,1].set_title("Frise Flux advectif MD",fontsize = fontsize)
+        im2 = ax[1, 1].imshow(self.get_advec_flows_solve()[
+                              :, :nt], aspect='auto', cmap='Spectral_r')
+        ax[1, 1].set_xlabel("t", fontsize=fontsize)
+        ax[1, 1].set_ylabel("z (m)", fontsize=fontsize)
+        cbar2 = fig.colorbar(im2, ax=ax[1, 1], shrink=1, location='right')
+        cbar2.set_label('Flux conductif (W/m²)', fontsize=fontsize)
+        ax[1, 1].set_title("Frise Flux advectif MD", fontsize=fontsize)
 
-        im3 = ax[1,2].imshow(self.get_flows_solve()[:,:nt], aspect='auto', cmap='Spectral_r')
-        ax[1,2].set_xlabel("t",fontsize = fontsize)
-        ax[1,2].set_ylabel("z (m)",fontsize = fontsize)
-        cbar3 = fig.colorbar(im3, ax=ax[1, 2], shrink=1,location='right')
-        cbar3.set_label('water flow (m/s)',fontsize = fontsize)
-        ax[1,2].set_title("Frise Flux d'eau MD",fontsize = fontsize)
+        im3 = ax[1, 2].imshow(self.get_flows_solve()[:, :nt],
+                              aspect='auto', cmap='Spectral_r')
+        ax[1, 2].set_xlabel("t", fontsize=fontsize)
+        ax[1, 2].set_ylabel("z (m)", fontsize=fontsize)
+        cbar3 = fig.colorbar(im3, ax=ax[1, 2], shrink=1, location='right')
+        cbar3.set_label('water flow (m/s)', fontsize=fontsize)
+        ax[1, 2].set_title("Frise Flux d'eau MD", fontsize=fontsize)
         # retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demand
