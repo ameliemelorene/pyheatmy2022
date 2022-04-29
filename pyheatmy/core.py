@@ -689,8 +689,14 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     # erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     @ compute_mcmc.needed
     def get_all_params(self):
-        # retourne tous les couples de paramètres par lesquels est passé la MCMC
-        return [[layer.params for layer in state.layers] for state in self._states]
+        n_layers = len(self._layersList)
+        n_params = len(self._layersList[0].params)
+        n_states = len(self._states)
+        res = np.empty((n_layers, n_states, n_params))
+        for i in range(n_layers):
+            for j, state in enumerate(self._states):
+                res[i][j] = np.array(state.layers[i].params)
+        return res
 
     all_params = property(get_all_params)
 
@@ -746,6 +752,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
     all_acceptance_ratio = property(get_all_acceptance_ratio)
 
+    @ compute_mcmc.needed
+    def get_quantiles(self):
+        return self._quantiles_temps.keys()
+
     # erreur si pas déjà éxécuté compute_mcmc, sinon l'attribut pas encore affecté à une valeur
     @ compute_mcmc.needed
     def get_temps_quantile(self, quantile):
@@ -756,7 +766,7 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
     @ compute_mcmc.needed
     def get_flows_quantile(self, quantile):
         return self._quantiles_flows[quantile]
-      
+
     @ compute_mcmc.needed
     def get_RMSE_quantile(self, quantile):
         # Number of sensors (except boundary conditions : river and aquifer)
@@ -774,9 +784,10 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
 
         return np.append(list_RMSE, total_RMSE)
 
-    def plot_CALC_results(self, nt=3000, fontsize = 15):
-        
-        time_array = np.array([(self._times[j+1] - self._times[j]).total_seconds() for j in range(len(self._times) - 1)])
+    def plot_CALC_results(self, nt=3000, fontsize=15):
+
+        time_array = np.array([(self._times[j+1] - self._times[j]).total_seconds()
+                              for j in range(len(self._times) - 1)])
         K_offset = 273.15
         nb_cells = len(self._z_solve)
         n_sens = len(self.depth_sensors)-1
@@ -860,4 +871,3 @@ class Column:  # colonne de sédiments verticale entre le lit de la rivière et 
         cbar3 = fig.colorbar(im3, ax=ax[1, 2], shrink=1,location='right')
         cbar3.set_label('Water flow (m/s)',fontsize = fontsize)
         ax[1,2].set_title("Frise Flux d'eau MD",fontsize = fontsize, pad = 20)
-        # retourne les valeurs des débits spécifiques en fonction du temps selon le quantile demand
