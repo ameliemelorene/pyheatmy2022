@@ -27,9 +27,9 @@ class Prior:
     def perturb(self, val):  # perturbe la valeur d'un paramètre en respectant le prior
         new_val = val + gauss(0, self.sigma)
         while new_val > self.range[1]:
-            new_val -= self.range[1] - self.range[0]
+            new_val = self.range[0] + (new_val-self.range[1]) % (self.range[1] - self.range[0])
         while new_val < self.range[0]:
-            new_val += self.range[1] - self.range[0]
+            new_val = self.range[1] - (self.range[0] - new_val) % (self.range[1] - self.range[0])
         return new_val
 
     def sample(self):  # retourne de manière uniforme un nombre de l'intervalle
